@@ -1,0 +1,29 @@
+{
+  "name": "lykke.service.eos.api",
+  "version": "1.0.0",
+  "description": "Lykke adapter to EOS.IO blockchain, main API",
+  "main": "./build/server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Lykke",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.18.0",
+    "azure-storage": "^2.8.3",
+    "eosjs": "^13.0.0",
+    "koa": "^2.5.1",
+    "koa-bodyparser": "^4.2.1",
+    "koa-multer": "^1.0.2",
+    "koa-router": "^7.4.0",
+    "reflect-metadata": "^0.1.12",
+    "routing-controllers": "^0.7.7",
+    "typedi": "^0.7.3"
+  },
+  "devDependencies": {
+    "@types/koa": "^2.0.45",
+    "@types/koa-bodyparser": "^4.2.0",
+    "@types/koa-router": "^7.0.28",
+    "@types/node": "^10.1.3"
+  }
+}
