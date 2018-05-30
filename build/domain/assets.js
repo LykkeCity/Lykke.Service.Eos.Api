@@ -18,7 +18,7 @@ let AssetRepository = class AssetRepository {
     constructor(settings) {
         this.settings = settings;
         this.tableName = "EosAssets";
-        this.table = azure_storage_1.createTableService(settings.EosSignService.DataConnectionString);
+        this.table = azure_storage_1.createTableService(settings.EosApi.DataConnectionString);
     }
     map(entity) {
         if (!entity) {

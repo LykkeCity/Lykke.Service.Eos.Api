@@ -12,7 +12,7 @@ export class AddressRepository {
     private table: TableService;
 
     constructor(private settings: Settings) {
-        this.table = createTableService(settings.EosSignService.DataConnectionString);
+        this.table = createTableService(settings.EosApi.DataConnectionString);
     }
 
     async get(take = 100, continuation?: string): Promise<QueryResult<string>> {

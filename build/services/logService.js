@@ -38,10 +38,10 @@ let LogService = class LogService {
      */
     async write(level, component, process, message, context, type, stack) {
         console.log(`${new Date().toISOString()} [${level}] ${component} : ${process} : ${message} : ${stack} : ${context}`);
-        if (!!this.settings.EosSignService &&
-            !!this.settings.EosSignService.LogAdapterUrl) {
+        if (!!this.settings.EosApi &&
+            !!this.settings.EosApi.LogAdapterUrl) {
             try {
-                await axios_1.default.post(this.settings.EosSignService.LogAdapterUrl, {
+                await axios_1.default.post(this.settings.EosApi.LogAdapterUrl, {
                     appName: common_1.APP_NAME,
                     appVersion: common_1.APP_VERSION,
                     envInfo: common_1.ENV_INFO,
@@ -52,7 +52,7 @@ let LogService = class LogService {
                     message,
                     callstack: stack,
                     exceptionType: type,
-                    additionalSlackChannels: this.settings.EosSignService.LogSlackChannels
+                    additionalSlackChannels: this.settings.EosApi.LogSlackChannels
                 });
             }
             catch (err) {

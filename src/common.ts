@@ -38,10 +38,14 @@ export function fromBase64<T>(str: string): T {
  * Defined as `class` instead of `interface` to make DI easier (no need of Token<Service>)
  */
 export class Settings {
-    EosSignService: {
+    EosApi: {
         DataConnectionString: string;
         LogAdapterUrl: string;
         LogSlackChannels: string[];
+        Eos: {
+            ExpireInSeconds: number;
+            HttpEndpoint: string;
+        }
     };
 }
 

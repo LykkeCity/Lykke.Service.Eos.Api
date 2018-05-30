@@ -1,7 +1,8 @@
-import "reflect-metadata";
 import { Service } from "typedi";
-import { createTableService } from "azure-storage";
-import * as util from "util";
+import { promisify } from "util";
+import { Asset } from "../domain/assets";
+import { OperationItem } from "../domain/operations";
+import { Settings } from "../common";
 
 // EOSJS has no typings, so use it as regular node module
 const Eos = require("eosjs");
@@ -11,10 +12,29 @@ export class EosService {
 
     private eos: any;
 
-    constructor() {
-        this.eos = Eos.Localnet();
+    constructor(private settings: Settings) {
+        this.eos = Eos.Localnet({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint });
     }
 
-    async buildTransaction(from: string, to: string, amount: number) {
+    async buildTransaction(operationId: string, items: OperationItem[]): Promise<any> {
+        return {
+            headers: await promisify(this.eos.createTransaction)(this.settings.EosApi.Eos.ExpireInSeconds),
+            actions: items.map(item => {
+                return {
+                    account: item.asset.address,
+                    name: "transfer",
+                    authorization: [{
+                        actor: item.from,
+                        permission: "active"
+                    }],
+                    data: {
+                        from: item.from,
+                        to: item.to,
+                        quantity: `${item.amount} ${item.asset.name}`,
+                        memo: ""
+                    }
+                };
+            })
+        };
     }
 }

@@ -30,10 +30,10 @@ export class LogService {
 
         console.log(`${new Date().toISOString()} [${level}] ${component} : ${process} : ${message} : ${stack} : ${context}`);
 
-        if (!!this.settings.EosSignService &&
-            !!this.settings.EosSignService.LogAdapterUrl) {
+        if (!!this.settings.EosApi &&
+            !!this.settings.EosApi.LogAdapterUrl) {
             try {
-                await axios.post(this.settings.EosSignService.LogAdapterUrl, {
+                await axios.post(this.settings.EosApi.LogAdapterUrl, {
                     appName: APP_NAME,
                     appVersion: APP_VERSION,
                     envInfo: ENV_INFO,
@@ -44,7 +44,7 @@ export class LogService {
                     message,
                     callstack: stack,
                     exceptionType: type,
-                    additionalSlackChannels: this.settings.EosSignService.LogSlackChannels
+                    additionalSlackChannels: this.settings.EosApi.LogSlackChannels
                 });
             } catch (err) {
                 console.warn("LogAdapter is configured, but throws error:");

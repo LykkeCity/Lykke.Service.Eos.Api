@@ -31,7 +31,7 @@ export class AssetRepository {
     }
 
     constructor(private settings: Settings) {
-        this.table = createTableService(settings.EosSignService.DataConnectionString);
+        this.table = createTableService(settings.EosApi.DataConnectionString);
     }
 
     async get(id: string): Promise<Asset>;
