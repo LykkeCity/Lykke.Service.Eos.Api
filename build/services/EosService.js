@@ -19,10 +19,19 @@ let EosService = class EosService {
         this.settings = settings;
         this.eos = Eos.Localnet({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint });
     }
+    isFake(item) {
+        return item.from.indexOf(common_1.ADDRESS_SEPARATOR) >= 0 || item.to.indexOf(common_1.ADDRESS_SEPARATOR) >= 0;
+    }
     async buildTransaction(operationId, items) {
+        // TODO: save operations
+        const actn = await this.eos.getActions({ account_name: "insect", pos: 0, offset: 0 });
+        const info = await this.eos.getInfo({});
         return {
+            chainId: info.chain_id,
             headers: await util_1.promisify(this.eos.createTransaction)(this.settings.EosApi.Eos.ExpireInSeconds),
-            actions: items.map(item => {
+            actions: items
+                .filter(item => !this.isFake(item))
+                .map(item => {
                 return {
                     account: item.asset.address,
                     name: "transfer",
@@ -39,6 +48,12 @@ let EosService = class EosService {
                 };
             })
         };
+    }
+    async broadcastTransaction(operationId, tx) {
+        // TODO: update balances
+        if (!!tx) {
+            await util_1.promisify(this.eos.pushTransaction)(tx);
+        }
     }
 };
 EosService = __decorate([
