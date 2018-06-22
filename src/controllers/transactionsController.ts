@@ -1,4 +1,4 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete } from "routing-controllers";
+import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository, Asset } from "../domain/assets";
@@ -118,9 +118,17 @@ export class TransactionsController {
     constructor(private eosService: EosService, private assetRepository: AssetRepository) {
     }
 
+    private async ensureAsset(assetId: string): Promise<Asset> {
+        const asset = await this.assetRepository.get(assetId);
+        if (!!asset) {
+            return asset;
+        }
+        throw new BadRequestError(`Unknown asset: ${assetId}`)
+    }
+
     @Post("/single")
     async buildSingle(@Body({ required: true }) request: BuildSingleRequest): Promise<BuildResponse> {
-        const asset = await this.assetRepository.get(request.assetId);
+        const asset = await this.ensureAsset(request.assetId);
         const items = Array.of(new OperationItem(request.fromAddress, request.toAddress, asset, request.amount));
         const txctx = await this.eosService.buildTransaction(request.operationId, items);
 
@@ -129,7 +137,7 @@ export class TransactionsController {
 
     @Post("/many-inputs")
     async buildManyInputs(@Body({ required: true }) request: BuildManyInputsRequest): Promise<BuildResponse> {
-        const asset = await this.assetRepository.get(request.assetId);
+        const asset = await this.ensureAsset(request.assetId);
         const items = request.inputs.map(vin => new OperationItem(vin.fromAddress, request.toAddress, asset, vin.amount));
         const txctx = await this.eosService.buildTransaction(request.operationId, items);
 
@@ -138,7 +146,7 @@ export class TransactionsController {
 
     @Post("/many-outputs")
     async buildManyOutputs(@Body({ required: true }) request: BuildManyOutputsRequest): Promise<BuildResponse> {
-        const asset = await this.assetRepository.get(request.assetId);
+        const asset = await this.ensureAsset(request.assetId);
         const items = request.outputs.map(out => new OperationItem(request.fromAddress, out.toAddress, asset, out.amount));
         const txctx = await this.eosService.buildTransaction(request.operationId, items);
 

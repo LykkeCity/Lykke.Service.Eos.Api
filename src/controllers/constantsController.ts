@@ -1,4 +1,5 @@
 import { JsonController, Get } from "routing-controllers";
+import { ADDRESS_SEPARATOR } from "../common";
 
 @JsonController("/constants")
 export class ConstantsController {
@@ -7,7 +8,7 @@ export class ConstantsController {
     constants() {
         return {
             publicAddressExtension: {
-                separator: "/",
+                separator: ADDRESS_SEPARATOR,
                 displayName: "Memo",
                 baseDisplayName: "Account"
             }

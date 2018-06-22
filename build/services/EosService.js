@@ -22,9 +22,29 @@ let EosService = class EosService {
     isFake(item) {
         return item.from.indexOf(common_1.ADDRESS_SEPARATOR) >= 0 || item.to.indexOf(common_1.ADDRESS_SEPARATOR) >= 0;
     }
+    async getLastIrreversibleBlockNumber() {
+        return (await this.eos.getInfo({})).last_irreversible_block_num;
+    }
+    /**
+     * Main:
+     *
+     * 0. We require local node because of history_api_plugin (see https://github.com/EOSIO/eos/blob/master/EXCHANGE_README.md).
+     * 1. Install node (DAWN 4.2 or RTM if exist).
+     * 2. Init local testnet with token contracts OR connect to any public testnet (f.e. dev.cryptolions.io/).
+     * 3. Run node with history_api_plugin and --filter_on_accounts hotwallet.
+     * 4. Periodically pull actions of hotwallet and increase balances of users (maybe it makes sense to store balance as sequence of changes with block number).
+     * 5. Build transactions including real transfers only, but saving all actions in DB by operationId.
+     * 6. On broadcast get actions from DB by operationId and decrease balances.
+     * 7. Keep only user balances (hotwallet$user-id), not hotwallet?
+     *
+     * History:
+     *
+     * 1. Just save all actions of hotwallet while pulling them from node and updating balance.
+     * 2. Check expired transactions similarily to Zcash.
+     * 3. Increase balance if transaction broadcasted but not included in block, expired and marked as failed later.
+     */
     async buildTransaction(operationId, items) {
         // TODO: save operations
-        const actn = await this.eos.getActions({ account_name: "insect", pos: 0, offset: 0 });
         const info = await this.eos.getInfo({});
         return {
             chainId: info.chain_id,

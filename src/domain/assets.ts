@@ -1,46 +1,43 @@
-import { Service } from "typedi";
-import { createTableService, TableService, TableQuery, TableUtilities } from "azure-storage";
+import { TableQuery } from "azure-storage";
 import { Settings } from "../common";
-import { QueryResult, select, toAzure } from "./queries";
+import { AzureQueryResult, AzureEntity, AzureRepository, Ignore, Int32 } from "./queries";
 import { isString } from "util";
+import { Service } from "typedi";
 
-export interface Asset {
-    assetId: string;
-    address: string;
-    name: string;
-    accuracy: number;
+export class Asset extends AzureEntity {
+
+    @Ignore()
+    get AssetId(): string {
+        return this.PartitionKey;
+    }
+
+    Address: string;
+    Name: string;
+
+    @Int32()
+    Accuracy: number;
 }
 
 @Service()
-export class AssetRepository {
+export class AssetRepository extends AzureRepository {
 
     private tableName: string = "EosAssets";
-    private table: TableService;
-
-    private map(entity: any): Asset {
-        if (!entity) {
-            return null;
-        } else {
-            return {
-                assetId: entity.PartitionKey._,
-                address: entity.Address._,
-                name: entity.Name._,
-                accuracy: entity.Accuracy._
-            }
-        }
-    }
 
     constructor(private settings: Settings) {
-        this.table = createTableService(settings.EosApi.DataConnectionString);
+        super(settings.EosApi.DataConnectionString);
     }
 
     async get(id: string): Promise<Asset>;
-    async get(take: number, continuation?: string): Promise<Asset[]>;
-    async get(idOrTake: string | number, continuation?: string): Promise<Asset | Asset[]> {
+    async get(take: number, continuation?: string): Promise<AzureQueryResult<Asset>>;
+    async get(idOrTake: string | number, continuation?: string): Promise<Asset | AzureQueryResult<Asset>> {
         if (isString(idOrTake)) {
-            return this.map(await select(this.table, this.tableName, idOrTake, ""));
+            return await this.select(Asset, this.tableName, idOrTake, "");
         } else {
-            return new QueryResult(await select(this.table, this.tableName, new TableQuery().top(idOrTake || 100), toAzure(continuation)), this.map).items;
+            return await this.select(Asset, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
         }
+    }
+
+    async all(): Promise<Asset[]> {
+        return await this.selectAll(c => this.get(100, c));
     }
 }

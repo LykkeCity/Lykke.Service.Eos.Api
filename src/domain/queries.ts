@@ -1,61 +1,211 @@
-import { TableService, TableQuery } from "azure-storage";
+import { TableService, TableQuery, TableUtilities, createTableService } from "azure-storage";
 import { fromBase64, toBase64 } from "../common";
 import { isString } from "util";
+import "reflect-metadata";
 
-export class QueryResult<T> {
+const azureEdmMetadataKey = Symbol("Azure.Edm");
+const azureIgnoreMetadataKey = Symbol("Azure.Ignore");
+const int64EdmMetadataKey = "Edm.Int64";
+const int32EdmMetadataKey = "Edm.Int32";
+const doubleEdmMetadataKey = "Edm.Double";
+
+export function Ignore() {
+    return (target: Object, propertyKey: string | symbol) => Reflect.defineMetadata(azureIgnoreMetadataKey, true, target, propertyKey);
+}
+
+export function Int64() {
+    return (target: Object, propertyKey: string | symbol) => Reflect.defineMetadata(azureEdmMetadataKey, int64EdmMetadataKey, target, propertyKey);
+}
+
+export function Int32() {
+    return (target: Object, propertyKey: string | symbol) => Reflect.defineMetadata(azureEdmMetadataKey, int32EdmMetadataKey, target, propertyKey);
+}
+
+export function Double() {
+    return (target: Object, propertyKey: string | symbol) => Reflect.defineMetadata(azureEdmMetadataKey, doubleEdmMetadataKey, target, propertyKey);
+}
+
+export function validateContinuation(continuation: string) {
+    try {
+        return toAzure(continuation) != null;
+    } catch (e) {
+        return false;
+    }
+}
+
+export function fromAzure<T extends AzureEntity>(entity: any, t: new () => T): T;
+export function fromAzure(continuationToken: TableService.TableContinuationToken): string;
+export function fromAzure<T extends AzureEntity>(entityOrContinuationToken: any | TableService.TableContinuationToken, t?: new () => T): T | string {
+    if (!entityOrContinuationToken) {
+        return null;
+    }
+    if (!t) {
+        return toBase64(entityOrContinuationToken);
+    } else {
+        const result = new t();
+        for (const key in entityOrContinuationToken) {
+            if (entityOrContinuationToken.hasOwnProperty(key)) {
+                if (!!entityOrContinuationToken[key] && entityOrContinuationToken[key].hasOwnProperty("_")) {
+                    switch (entityOrContinuationToken[key].$) {
+                        case "Edm.DateTime":
+                            result[key] = new Date(entityOrContinuationToken[key]._)
+                            break;
+                        case "Edm.Int32":
+                        case "Edm.Int64":
+                            result[key] = parseInt(entityOrContinuationToken[key]._)
+                            break;
+                        case "Edm.Double":
+                            result[key] = parseFloat(entityOrContinuationToken[key]._)
+                            break;
+                        default:
+                            result[key] = entityOrContinuationToken[key]._;
+                            break;
+                    }
+                } else {
+                    result[key] = entityOrContinuationToken[key];
+                }
+            }
+        }
+        return result;
+    }
+}
+
+export function toAzure<T extends AzureEntity>(entity: T): any;
+export function toAzure(continuation: string): TableService.TableContinuationToken;
+export function toAzure<T extends AzureEntity>(entityOrContinuation: T | string): any | TableService.TableContinuationToken {
+    if (!entityOrContinuation) {
+        return null;
+    }
+    if (isString(entityOrContinuation)) {
+        return fromBase64<TableService.TableContinuationToken>(entityOrContinuation);
+    } else {
+        const entity: any = {
+            ".metadata": entityOrContinuation[".metadata"]
+        };
+        for (const key in entityOrContinuation) {
+            if (key != ".metadata" && !Reflect.getMetadata(azureIgnoreMetadataKey, entityOrContinuation, key)) {
+                entity[key] = {
+                    _: entityOrContinuation[key],
+                    $: Reflect.getMetadata(azureEdmMetadataKey, entityOrContinuation, key)
+                };
+            }
+        }
+        return entity;
+    }
+}
+
+export class AzureEntity {
+    PartitionKey: string;
+    RowKey: string;
+    [key: string]: any;
+}
+
+export class AzureQueryResult<T extends AzureEntity> {
 
     constructor(azureQueryResult: TableService.QueryEntitiesResult<any>, toT: (e: any) => T) {
         this.items = azureQueryResult.entries.map(toT);
-        this.continuation = !!azureQueryResult.continuationToken
-            ? toBase64(JSON.stringify(azureQueryResult.continuationToken))
-            : null;
+        this.continuation = fromAzure(azureQueryResult.continuationToken);
     }
 
     items: T[];
     continuation: string;
 }
 
-export function toAzure(continuation: string): TableService.TableContinuationToken {
-    return !!continuation
-        ? JSON.parse(fromBase64(continuation)) as TableService.TableContinuationToken
-        : null;
-}
+export class AzureRepository {
 
-export async function ensureTable(table: TableService, tableName: string): Promise<void> {
-    return new Promise<void>((res, rej) => {
-        table.createTableIfNotExists(tableName, err => {
-            if (err) {
-                rej(err);
-            } else {
-                res();
-            }
-        });
-    });
-}
+    protected table: TableService;
 
-export async function select(table: TableService, tableName: string, partitionKey: string, rowKey: string): Promise<any>;
-export async function select(table: TableService, tableName: string, query: TableQuery, continuationToken: TableService.TableContinuationToken): Promise<TableService.QueryEntitiesResult<any>>;
-export async function select(table: TableService, tableName: string, partitionKeyOrQuery: string | TableQuery, rowKeyOrContinuationToken: string | TableService.TableContinuationToken): Promise<any | TableService.QueryEntitiesResult<any>> {
-    return ensureTable(table, tableName)
-        .then(() => {
-            return new Promise<any | QueryResult<any>>((res, rej) => {
-                if (isString(partitionKeyOrQuery)) {
-                    table.retrieveEntity(tableName, partitionKeyOrQuery, rowKeyOrContinuationToken as string, (err, result, response) => {
-                        if (err && response.statusCode != 404) {
-                            rej(err);
-                        } else {
-                            res(result);
-                        }
-                    });
+    constructor(connectionString: string) {
+        this.table = createTableService(connectionString);
+    }
+
+    protected ensureTable(tableName: string): Promise<void> {
+        return new Promise<void>((res, rej) => {
+            this.table.createTableIfNotExists(tableName, err => {
+                if (err) {
+                    rej(err);
                 } else {
-                    table.queryEntities(tableName, partitionKeyOrQuery, rowKeyOrContinuationToken as TableService.TableContinuationToken, (err, result, response) => {
-                        if (err) {
-                            rej(err);
-                        } else {
-                            res(result);
-                        }
-                    });
+                    res();
                 }
             });
         });
+    }
+
+    protected remove(tableName: string, partitionKey: string, rowKey: string): Promise<void> {
+        return this.ensureTable(tableName)
+            .then(() => {
+                return new Promise<void>((res, rej) => {
+                    const entity = {
+                        PartitionKey: TableUtilities.entityGenerator.String(partitionKey),
+                        RowKey: TableUtilities.entityGenerator.String(rowKey)
+                    };
+                    this.table.deleteEntity(tableName, entity, err => {
+                        if (err) {
+                            rej(err);
+                        } else {
+                            res();
+                        }
+                    })
+                });
+            });
+    }
+
+    protected select<T extends AzureEntity>(t: new () => T, tableName: string, partitionKey: string, rowKey: string, throwIfNotFound?: boolean): Promise<T>;
+    protected select<T extends AzureEntity>(t: new () => T, tableName: string, query: TableQuery, continuation: string): Promise<AzureQueryResult<T>>;
+    protected select<T extends AzureEntity>(t: new () => T, tableName: string, partitionKeyOrQuery: string | TableQuery, rowKeyOrContinuation: string, throwIfNotFound = false): Promise<T | AzureQueryResult<T>> {
+        return this.ensureTable(tableName)
+            .then(() => {
+                return new Promise<any | AzureQueryResult<any>>((res, rej) => {
+                    if (isString(partitionKeyOrQuery)) {
+                        this.table.retrieveEntity(tableName, partitionKeyOrQuery, rowKeyOrContinuation, (err, result, response) => {
+                            if (err && (response.statusCode != 404 || !!throwIfNotFound)) {
+                                rej(err);
+                            } else {
+                                res(fromAzure(result, t));
+                            }
+                        });
+                    } else {
+                        this.table.queryEntities(tableName, partitionKeyOrQuery, toAzure(rowKeyOrContinuation), (err, result) => {
+                            if (err) {
+                                rej(err);
+                            } else {
+                                res(new AzureQueryResult(result, e => fromAzure<T>(e, t)));
+                            }
+                        });
+                    }
+                });
+            });
+    }
+
+    protected insertOrMerge<T extends AzureEntity>(tableName: string, entity: T): Promise<void> {
+        return this.ensureTable(tableName)
+            .then(() => {
+                return new Promise<void>((res, rej) => {
+                    this.table.insertOrMergeEntity(tableName, toAzure(entity), err => {
+                        if (err) {
+                            rej(err);
+                        } else {
+                            res();
+                        }
+                    });
+                });
+            });
+    }
+
+    /**
+     * Fetches all entities chunk by chunk.
+     * @param query Performs actual query, must accept continuation
+     */
+    protected async selectAll<T extends AzureEntity>(query: (c: string) => Promise<AzureQueryResult<T>>): Promise<T[]> {
+        let continuation: string = null;
+        let items: T[] = [];
+
+        do {
+            const res = await query(continuation);
+            continuation = res.continuation;
+            items = items.concat(res.items);
+        } while (!!continuation)
+
+        return items;
+    }
 }

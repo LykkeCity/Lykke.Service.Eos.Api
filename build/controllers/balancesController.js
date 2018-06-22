@@ -13,40 +13,75 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
-const addresses_1 = require("../domain/addresses");
-let BalancesController = class BalancesController {
-    constructor(addressRepository) {
-        this.addressRepository = addressRepository;
+const balances_1 = require("../domain/balances");
+const queries_1 = require("../domain/queries");
+const assets_1 = require("../domain/assets");
+const eosService_1 = require("../services/eosService");
+class BalanceModel {
+    constructor(balance, asset, block) {
+        this.address = balance.Address;
+        this.assetId = balance.AssetId;
+        this.balance = (balance.Balance * (Math.pow(10, asset.Accuracy))).toFixed(0);
+        this.block = block;
     }
-    async balances(take = 100, continuation) {
-        const items = [];
-        do {
-            const addressQuery = await this.addressRepository.get(take, continuation);
-            for (let i = 0; i < addressQuery.items.length; i++) {
-                // TODO: get balance
-                items.push({
-                    address: addressQuery.items[i],
-                });
-            }
-            take -= addressQuery.items.length;
-            continuation = addressQuery.continuation;
-        } while (!!take && !!continuation);
+}
+exports.BalanceModel = BalanceModel;
+let BalancesController = class BalancesController {
+    constructor(assetRepository, balanceRepository, eos) {
+        this.assetRepository = assetRepository;
+        this.balanceRepository = balanceRepository;
+        this.eos = eos;
+    }
+    async balances(take, continuation) {
+        if (take <= 0) {
+            throw new routing_controllers_1.BadRequestError(`Query parameter "take" is required`);
+        }
+        if (!!continuation && !queries_1.validateContinuation(continuation)) {
+            throw new routing_controllers_1.BadRequestError(`Query parameter "continuation" is invalid`);
+        }
+        const blockNumber = await this.eos.getLastIrreversibleBlockNumber();
+        const result = await this.balanceRepository.get(take, continuation);
+        const assets = await this.assetRepository.all();
         return {
-            continuation,
-            items
+            items: result.items.filter(e => e.Balance > 0).map(e => new BalanceModel(e, assets.find(a => a.AssetId == e.AssetId), blockNumber)),
+            continuation: result.continuation
         };
+    }
+    async observe(address) {
+    }
+    async deleteObservation(address) {
     }
 };
 __decorate([
     routing_controllers_1.Get(),
-    __param(0, routing_controllers_1.QueryParam("take")), __param(1, routing_controllers_1.QueryParam("continuation")),
+    __param(0, routing_controllers_1.QueryParam("take", { required: true })), __param(1, routing_controllers_1.QueryParam("continuation")),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:paramtypes", [Number, String]),
     __metadata("design:returntype", Promise)
 ], BalancesController.prototype, "balances", null);
+__decorate([
+    routing_controllers_1.Post("/:address/observation"),
+    routing_controllers_1.HttpCode(200),
+    routing_controllers_1.OnNull(200),
+    routing_controllers_1.OnUndefined(200),
+    __param(0, routing_controllers_1.Param("address")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], BalancesController.prototype, "observe", null);
+__decorate([
+    routing_controllers_1.Delete("/:address/observation"),
+    routing_controllers_1.HttpCode(200),
+    routing_controllers_1.OnNull(200),
+    routing_controllers_1.OnUndefined(200),
+    __param(0, routing_controllers_1.Param("address")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], BalancesController.prototype, "deleteObservation", null);
 BalancesController = __decorate([
     routing_controllers_1.JsonController("/balances"),
-    __metadata("design:paramtypes", [addresses_1.AddressRepository])
+    __metadata("design:paramtypes", [assets_1.AssetRepository, balances_1.BalanceRepository, eosService_1.EosService])
 ], BalancesController);
 exports.BalancesController = BalancesController;
 //# sourceMappingURL=balancesController.js.map

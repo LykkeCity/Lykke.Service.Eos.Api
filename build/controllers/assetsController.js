@@ -14,20 +14,41 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
 const assets_1 = require("../domain/assets");
+const queries_1 = require("../domain/queries");
+class AssetModel {
+    constructor(asset) {
+        this.assetId = asset.AssetId;
+        this.address = asset.Address;
+        this.name = asset.Name;
+        this.accuracy = asset.Accuracy;
+    }
+}
+exports.AssetModel = AssetModel;
 let AssetsController = class AssetsController {
     constructor(assetRepository) {
         this.assetRepository = assetRepository;
     }
     async list(take, continuation) {
-        return await this.assetRepository.get(take, continuation);
+        if (take <= 0) {
+            throw new routing_controllers_1.BadRequestError(`Query parameter "take" is required`);
+        }
+        if (!!continuation && !queries_1.validateContinuation(continuation)) {
+            throw new routing_controllers_1.BadRequestError(`Query parameter "continuation" is invalid`);
+        }
+        const query = await this.assetRepository.get(take, continuation);
+        return {
+            items: query.items.map(e => new AssetModel(e)),
+            continuation: query.continuation
+        };
     }
     async item(assetId) {
-        return await this.assetRepository.get(assetId);
+        const asset = await this.assetRepository.get(assetId);
+        return new AssetModel(asset);
     }
 };
 __decorate([
     routing_controllers_1.Get(),
-    __param(0, routing_controllers_1.QueryParam("take")), __param(1, routing_controllers_1.QueryParam("continuation")),
+    __param(0, routing_controllers_1.QueryParam("take", { required: true })), __param(1, routing_controllers_1.QueryParam("continuation")),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Number, String]),
     __metadata("design:returntype", Promise)
