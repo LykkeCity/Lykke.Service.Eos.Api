@@ -14,21 +14,27 @@ const common_1 = require("../common");
 const queries_1 = require("./queries");
 const util_1 = require("util");
 const typedi_1 = require("typedi");
-class Asset extends queries_1.AzureEntity {
+class AssetEntity extends queries_1.AzureEntity {
+    /**
+     * Token symbol
+     */
     get AssetId() {
         return this.PartitionKey;
+    }
+    parse(integerString) {
+        return parseInt(integerString) / Math.pow(10, this.Accuracy);
     }
 }
 __decorate([
     queries_1.Ignore(),
     __metadata("design:type", String),
     __metadata("design:paramtypes", [])
-], Asset.prototype, "AssetId", null);
+], AssetEntity.prototype, "AssetId", null);
 __decorate([
     queries_1.Int32(),
     __metadata("design:type", Number)
-], Asset.prototype, "Accuracy", void 0);
-exports.Asset = Asset;
+], AssetEntity.prototype, "Accuracy", void 0);
+exports.AssetEntity = AssetEntity;
 let AssetRepository = class AssetRepository extends queries_1.AzureRepository {
     constructor(settings) {
         super(settings.EosApi.DataConnectionString);
@@ -37,10 +43,10 @@ let AssetRepository = class AssetRepository extends queries_1.AzureRepository {
     }
     async get(idOrTake, continuation) {
         if (util_1.isString(idOrTake)) {
-            return await this.select(Asset, this.tableName, idOrTake, "");
+            return await this.select(AssetEntity, this.tableName, idOrTake, "");
         }
         else {
-            return await this.select(Asset, this.tableName, new azure_storage_1.TableQuery().top(idOrTake || 100), continuation);
+            return await this.select(AssetEntity, this.tableName, new azure_storage_1.TableQuery().top(idOrTake || 100), continuation);
         }
     }
     async all() {

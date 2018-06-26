@@ -166,19 +166,42 @@ class AzureRepository {
             });
         });
     }
-    insertOrMerge(tableName, entity) {
+    insertOrMerge(tableName, entityOrArray) {
         return this.ensureTable(tableName)
             .then(() => {
-            return new Promise((res, rej) => {
-                this.table.insertOrMergeEntity(tableName, toAzure(entity), err => {
-                    if (err) {
-                        rej(err);
-                    }
-                    else {
-                        res();
-                    }
+            if (util_1.isArray(entityOrArray)) {
+                const batches = [];
+                const entities = entityOrArray.map(e => toAzure(e));
+                while (entities.length) {
+                    const batch = entities.splice(0, 100).reduce((batch, entity) => {
+                        batch.insertOrMergeEntity(entity);
+                        return batch;
+                    }, new azure_storage_1.TableBatch());
+                    batches.push(new Promise((res, rej) => {
+                        this.table.executeBatch(tableName, batch, err => {
+                            if (err) {
+                                rej(err);
+                            }
+                            else {
+                                res();
+                            }
+                        });
+                    }));
+                }
+                return Promise.all(batches).then(() => { });
+            }
+            else {
+                return new Promise((res, rej) => {
+                    this.table.insertOrMergeEntity(tableName, toAzure(entityOrArray), err => {
+                        if (err) {
+                            rej(err);
+                        }
+                        else {
+                            res();
+                        }
+                    });
                 });
-            });
+            }
         });
     }
     /**

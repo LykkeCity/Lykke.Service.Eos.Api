@@ -1,11 +1,11 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError } from "routing-controllers";
-import { Asset, AssetRepository } from "../domain/assets";
+import { AssetEntity, AssetRepository } from "../domain/assets";
 import { IsNotEmpty } from "class-validator";
 import { validateContinuation } from "../domain/queries";
 
 export class AssetModel {
 
-    constructor(asset: Asset) {
+    constructor(asset: AssetEntity) {
         this.assetId = asset.AssetId;
         this.address = asset.Address;
         this.name = asset.Name;

@@ -19,6 +19,7 @@ const assets_1 = require("../domain/assets");
 const operations_1 = require("../domain/operations");
 const common_1 = require("../common");
 const notImplementedError_1 = require("../errors/notImplementedError");
+const logService_1 = require("../services/logService");
 class BuildSingleRequest {
 }
 __decorate([
@@ -131,39 +132,77 @@ __decorate([
     class_validator_1.IsBase64(),
     __metadata("design:type", String)
 ], BroadcastRequest.prototype, "signedTransaction", void 0);
-class BuildResponse {
-    constructor(transactionContext) {
-        this.transactionContext = transactionContext;
-    }
-}
-let TransactionsController = class TransactionsController {
-    constructor(eosService, assetRepository) {
+let TransactionsController = TransactionsController_1 = class TransactionsController {
+    constructor(logService, eosService, assetRepository, operationRepository) {
+        this.logService = logService;
         this.eosService = eosService;
         this.assetRepository = assetRepository;
+        this.operationRepository = operationRepository;
+    }
+    isFake(action) {
+        return action.fromAddress.split(common_1.ADDRESS_SEPARATOR)[0] == action.toAddress.split(common_1.ADDRESS_SEPARATOR)[0];
+    }
+    async ensureAsset(assetId) {
+        const asset = await this.assetRepository.get(assetId);
+        if (!!asset) {
+            return asset;
+        }
+        throw new routing_controllers_1.BadRequestError("Unknown asset");
+    }
+    async build(type, operationId, assetId, inputsOutputs) {
+        const asset = await this.ensureAsset(assetId);
+        const actions = inputsOutputs.map(e => (Object.assign({}, e, { amount: asset.parse(e.amount) })));
+        const context = {
+            chainId: await this.eosService.getChainId(),
+            headers: await this.eosService.getTransactionHeaders(),
+            actions: actions
+                .filter(action => !this.isFake(action))
+                .map(action => {
+                const from = action.fromAddress.split(common_1.ADDRESS_SEPARATOR)[0];
+                const memo = action.fromAddress.split(common_1.ADDRESS_SEPARATOR)[1] || "";
+                const to = action.toAddress.split(common_1.ADDRESS_SEPARATOR)[0];
+                const quantity = `${action.amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
+                return {
+                    account: asset.Address,
+                    name: "transfer",
+                    authorization: [{ actor: from, permission: "active" }],
+                    data: { from, to, quantity, memo }
+                };
+            })
+        };
+        await this.operationRepository.upsert(operationId, type, assetId, actions, common_1.isoUTC(context.headers.expiration));
+        return {
+            transactionContext: common_1.toBase64(context)
+        };
     }
     async buildSingle(request) {
-        const asset = await this.assetRepository.get(request.assetId);
-        const items = Array.of(new operations_1.OperationItem(request.fromAddress, request.toAddress, asset, request.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-        return new BuildResponse(common_1.toBase64(txctx));
+        return await this.build(operations_1.OperationType.Single, request.operationId, request.assetId, Array.of(request));
     }
     async buildManyInputs(request) {
-        const asset = await this.assetRepository.get(request.assetId);
-        const items = request.inputs.map(vin => new operations_1.OperationItem(vin.fromAddress, request.toAddress, asset, vin.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-        return new BuildResponse(common_1.toBase64(txctx));
+        return await this.build(operations_1.OperationType.MultiFrom, request.operationId, request.assetId, request.inputs.map(vin => (Object.assign({ toAddress: request.toAddress }, vin))));
     }
     async buildManyOutputs(request) {
-        const asset = await this.assetRepository.get(request.assetId);
-        const items = request.outputs.map(out => new operations_1.OperationItem(request.fromAddress, out.toAddress, asset, out.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-        return new BuildResponse(common_1.toBase64(txctx));
+        return await this.build(operations_1.OperationType.MultiTo, request.operationId, request.assetId, request.outputs.map(vout => (Object.assign({ fromAddress: request.fromAddress }, vout))));
     }
     async Rebuild() {
         throw new notImplementedError_1.NotImplementedError();
     }
     async broadcast(request) {
-        return await this.eosService.broadcastTransaction(request.operationId, common_1.fromBase64(request.signedTransaction));
+        try {
+            const txId = await this.eosService.pushTransaction(common_1.fromBase64(request.signedTransaction));
+            await this.operationRepository.updateSend(request.operationId, txId);
+        }
+        catch (error) {
+            if (!!error.status && error.status == 400) {
+                // HTTP 400 means transaction data is wrong,
+                // it's useless to repeat so mark as failed:
+                await this.operationRepository.updateFail(request.operationId, error.message);
+                await this.logService.write(logService_1.LogLevel.warning, TransactionsController_1.name, this.broadcast.name, "Transaction rejected", error.message, error.name, error.stack);
+            }
+            else {
+                throw error;
+            }
+        }
     }
 };
 __decorate([
@@ -195,14 +234,20 @@ __decorate([
 ], TransactionsController.prototype, "Rebuild", null);
 __decorate([
     routing_controllers_1.Post("/broadcast"),
+    routing_controllers_1.OnNull(200),
+    routing_controllers_1.OnUndefined(200),
     __param(0, routing_controllers_1.Body({ required: true })),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [BroadcastRequest]),
     __metadata("design:returntype", Promise)
 ], TransactionsController.prototype, "broadcast", null);
-TransactionsController = __decorate([
+TransactionsController = TransactionsController_1 = __decorate([
     routing_controllers_1.JsonController("/transactions"),
-    __metadata("design:paramtypes", [eosService_1.EosService, assets_1.AssetRepository])
+    __metadata("design:paramtypes", [logService_1.LogService,
+        eosService_1.EosService,
+        assets_1.AssetRepository,
+        operations_1.OperationRepository])
 ], TransactionsController);
 exports.TransactionsController = TransactionsController;
+var TransactionsController_1;
 //# sourceMappingURL=transactionsController.js.map

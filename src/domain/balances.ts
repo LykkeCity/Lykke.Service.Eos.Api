@@ -1,11 +1,11 @@
-import { Asset } from "./assets";
+import { AssetEntity } from "./assets";
 import { Settings } from "../common";
 import { AzureEntity, AzureRepository, Ignore, Double, AzureQueryResult } from "./queries";
 import { isString } from "util";
 import { TableQuery } from "azure-storage";
 import { Service } from "typedi";
 
-export class Balance extends AzureEntity {
+export class BalanceEntity extends AzureEntity {
 
     @Ignore()
     get Address(): string {
@@ -36,13 +36,13 @@ export class BalanceRepository extends AzureRepository {
      * @param asset Asset
      * @param affix Amount to add (if positive) or subtract (if negative)
      */
-    async upsert(address: string, asset: Asset, affix: number): Promise<number> {
-        let entity = await this.select(Balance, this.tableName, address, asset.AssetId);
+    async upsert(address: string, asset: AssetEntity, affix: number): Promise<number> {
+        let entity = await this.select(BalanceEntity, this.tableName, address, asset.AssetId);
 
         if (entity) {
             entity.Balance += affix;
         } else {
-            entity = new Balance();
+            entity = new BalanceEntity();
             entity.PartitionKey = address;
             entity.RowKey = asset.AssetId;
             entity.Balance = affix;
@@ -53,17 +53,17 @@ export class BalanceRepository extends AzureRepository {
         return entity.Balance;
     }
 
-    async get(id: string): Promise<Balance>;
-    async get(take: number, continuation?: string): Promise<AzureQueryResult<Balance>>;
-    async get(idOrTake: string | number, continuation?: string): Promise<Balance | AzureQueryResult<Balance>> {
+    async get(id: string): Promise<BalanceEntity>;
+    async get(take: number, continuation?: string): Promise<AzureQueryResult<BalanceEntity>>;
+    async get(idOrTake: string | number, continuation?: string): Promise<BalanceEntity | AzureQueryResult<BalanceEntity>> {
         if (isString(idOrTake)) {
-            return await this.select(Balance, this.tableName, idOrTake, "");
+            return await this.select(BalanceEntity, this.tableName, idOrTake, "");
         } else {
-            return await this.select(Balance, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
+            return await this.select(BalanceEntity, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
         }
     }
 
-    async all(): Promise<Balance[]> {
+    async all(): Promise<BalanceEntity[]> {
         return await this.selectAll(c => this.get(100, c));
     }
 }

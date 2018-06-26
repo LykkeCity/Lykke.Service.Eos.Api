@@ -4,18 +4,32 @@ import { AzureQueryResult, AzureEntity, AzureRepository, Ignore, Int32 } from ".
 import { isString } from "util";
 import { Service } from "typedi";
 
-export class Asset extends AzureEntity {
+export class AssetEntity extends AzureEntity {
 
+    /**
+     * Token symbol
+     */
     @Ignore()
     get AssetId(): string {
         return this.PartitionKey;
     }
 
+    /**
+     * Token contract account
+     */
     Address: string;
+
     Name: string;
 
+    /**
+     * Number of digits after the decimal point
+     */
     @Int32()
     Accuracy: number;
+
+    parse(integerString: string) {
+        return parseInt(integerString) / Math.pow(10, this.Accuracy);
+    }
 }
 
 @Service()
@@ -27,17 +41,17 @@ export class AssetRepository extends AzureRepository {
         super(settings.EosApi.DataConnectionString);
     }
 
-    async get(id: string): Promise<Asset>;
-    async get(take: number, continuation?: string): Promise<AzureQueryResult<Asset>>;
-    async get(idOrTake: string | number, continuation?: string): Promise<Asset | AzureQueryResult<Asset>> {
+    async get(id: string): Promise<AssetEntity>;
+    async get(take: number, continuation?: string): Promise<AzureQueryResult<AssetEntity>>;
+    async get(idOrTake: string | number, continuation?: string): Promise<AssetEntity | AzureQueryResult<AssetEntity>> {
         if (isString(idOrTake)) {
-            return await this.select(Asset, this.tableName, idOrTake, "");
+            return await this.select(AssetEntity, this.tableName, idOrTake, "");
         } else {
-            return await this.select(Asset, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
+            return await this.select(AssetEntity, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
         }
     }
 
-    async all(): Promise<Asset[]> {
+    async all(): Promise<AssetEntity[]> {
         return await this.selectAll(c => this.get(100, c));
     }
 }

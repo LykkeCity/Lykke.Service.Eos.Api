@@ -10,11 +10,12 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
+const common_1 = require("../common");
 let ConstantsController = class ConstantsController {
     constants() {
         return {
             publicAddressExtension: {
-                separator: "/",
+                separator: common_1.ADDRESS_SEPARATOR,
                 displayName: "Memo",
                 baseDisplayName: "Account"
             }

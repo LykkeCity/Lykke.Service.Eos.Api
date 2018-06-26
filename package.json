@@ -11,7 +11,7 @@
   "dependencies": {
     "axios": "^0.18.0",
     "azure-storage": "^2.8.3",
-    "eosjs": "^15.0.1",
+    "eosjs": "^15.0.3",
     "koa": "^2.5.1",
     "koa-bodyparser": "^4.2.1",
     "koa-multer": "^1.0.2",
@@ -23,7 +23,7 @@
   "devDependencies": {
     "@types/koa": "^2.0.46",
     "@types/koa-bodyparser": "^4.2.0",
-    "@types/koa-router": "^7.0.29",
-    "@types/node": "^10.3.4"
+    "@types/koa-router": "^7.0.30",
+    "@types/node": "^10.3.6"
   }
 }

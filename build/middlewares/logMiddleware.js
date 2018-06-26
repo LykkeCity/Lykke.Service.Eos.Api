@@ -11,7 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
 const logService_1 = require("../services/logService");
-let LogMiddleware = class LogMiddleware {
+let LogMiddleware = LogMiddleware_1 = class LogMiddleware {
     constructor(log) {
         this.log = log;
     }
@@ -24,7 +24,7 @@ let LogMiddleware = class LogMiddleware {
         if (ctx.status >= 400) {
             const level = ctx.status < 500 ? logService_1.LogLevel.warning
                 : logService_1.LogLevel.error;
-            const component = "Lykke.Service.Eos.SignService";
+            const component = LogMiddleware_1.name;
             const process = ctx.url;
             const message = ctx.body && ctx.body.message || ctx.message;
             const context = ctx.request.body && JSON.stringify(ctx.request.body);
@@ -34,9 +34,10 @@ let LogMiddleware = class LogMiddleware {
         }
     }
 };
-LogMiddleware = __decorate([
+LogMiddleware = LogMiddleware_1 = __decorate([
     routing_controllers_1.Middleware({ type: 'before' }),
     __metadata("design:paramtypes", [logService_1.LogService])
 ], LogMiddleware);
 exports.LogMiddleware = LogMiddleware;
+var LogMiddleware_1;
 //# sourceMappingURL=logMiddleware.js.map

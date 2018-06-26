@@ -1,10 +1,11 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError } from "routing-controllers";
+import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnNull, OnUndefined } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
-import { AssetRepository, Asset } from "../domain/assets";
-import { OperationItem } from "../domain/operations";
-import { toBase64, fromBase64 } from "../common";
+import { AssetRepository, AssetEntity } from "../domain/assets";
+import { OperationRepository, OperationType } from "../domain/operations";
+import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
+import { LogService, LogLevel } from "../services/logService";
 
 class BuildSingleRequest {
     @IsString()
@@ -107,50 +108,83 @@ class BroadcastRequest {
     signedTransaction: string;
 }
 
-class BuildResponse {
-    constructor(public transactionContext: string) {
-    }
-}
-
 @JsonController("/transactions")
 export class TransactionsController {
 
-    constructor(private eosService: EosService, private assetRepository: AssetRepository) {
+    constructor(
+        private logService: LogService,
+        private eosService: EosService,
+        private assetRepository: AssetRepository,
+        private operationRepository: OperationRepository) {
     }
 
-    private async ensureAsset(assetId: string): Promise<Asset> {
+    private isFake(action: { fromAddress: string, toAddress: string }): boolean {
+        return action.fromAddress.split(ADDRESS_SEPARATOR)[0] == action.toAddress.split(ADDRESS_SEPARATOR)[0];
+    }
+
+    private async ensureAsset(assetId: string): Promise<AssetEntity> {
         const asset = await this.assetRepository.get(assetId);
         if (!!asset) {
             return asset;
         }
-        throw new BadRequestError(`Unknown asset: ${assetId}`)
+
+        throw new BadRequestError("Unknown asset");
+    }
+
+    private async build(type: OperationType, operationId: string, assetId: string, inputsOutputs: { fromAddress: string, toAddress: string, amount: string }[]) {
+        const asset = await this.ensureAsset(assetId);
+        const actions = inputsOutputs.map(e => ({ ...e, amount: asset.parse(e.amount) }));
+        const context = {
+            chainId: await this.eosService.getChainId(),
+            headers: await this.eosService.getTransactionHeaders(),
+            actions: actions
+                .filter(action => !this.isFake(action))
+                .map(action => {
+                    const from = action.fromAddress.split(ADDRESS_SEPARATOR)[0];
+                    const memo = action.fromAddress.split(ADDRESS_SEPARATOR)[1] || "";
+                    const to = action.toAddress.split(ADDRESS_SEPARATOR)[0];
+                    const quantity = `${action.amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
+                    return {
+                        account: asset.Address,
+                        name: "transfer",
+                        authorization: [{ actor: from, permission: "active" }],
+                        data: { from, to, quantity, memo }
+                    };
+                })
+        }
+
+        await this.operationRepository.upsert(operationId, type, assetId, actions, isoUTC(context.headers.expiration));
+
+        return {
+            transactionContext: toBase64(context)
+        };
     }
 
     @Post("/single")
-    async buildSingle(@Body({ required: true }) request: BuildSingleRequest): Promise<BuildResponse> {
-        const asset = await this.ensureAsset(request.assetId);
-        const items = Array.of(new OperationItem(request.fromAddress, request.toAddress, asset, request.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-
-        return new BuildResponse(toBase64(txctx));
+    async buildSingle(@Body({ required: true }) request: BuildSingleRequest) {
+        return await this.build(OperationType.Single, request.operationId, request.assetId, Array.of(request))
     }
 
     @Post("/many-inputs")
-    async buildManyInputs(@Body({ required: true }) request: BuildManyInputsRequest): Promise<BuildResponse> {
-        const asset = await this.ensureAsset(request.assetId);
-        const items = request.inputs.map(vin => new OperationItem(vin.fromAddress, request.toAddress, asset, vin.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-
-        return new BuildResponse(toBase64(txctx));
+    async buildManyInputs(@Body({ required: true }) request: BuildManyInputsRequest) {
+        return await this.build(OperationType.MultiFrom,
+            request.operationId,
+            request.assetId,
+            request.inputs.map(vin => ({
+                toAddress: request.toAddress,
+                ...vin
+            })));
     }
 
     @Post("/many-outputs")
-    async buildManyOutputs(@Body({ required: true }) request: BuildManyOutputsRequest): Promise<BuildResponse> {
-        const asset = await this.ensureAsset(request.assetId);
-        const items = request.outputs.map(out => new OperationItem(request.fromAddress, out.toAddress, asset, out.amount));
-        const txctx = await this.eosService.buildTransaction(request.operationId, items);
-
-        return new BuildResponse(toBase64(txctx));
+    async buildManyOutputs(@Body({ required: true }) request: BuildManyOutputsRequest) {
+        return await this.build(OperationType.MultiTo,
+            request.operationId,
+            request.assetId,
+            request.outputs.map(vout => ({
+                fromAddress: request.fromAddress,
+                ...vout
+            })));
     }
 
     @Put()
@@ -159,7 +193,22 @@ export class TransactionsController {
     }
 
     @Post("/broadcast")
+    @OnNull(200)
+    @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
-        return await this.eosService.broadcastTransaction(request.operationId, fromBase64(request.signedTransaction));
+        try {
+            const txId = await this.eosService.pushTransaction(fromBase64(request.signedTransaction));
+            await this.operationRepository.updateSend(request.operationId, txId);
+        } catch (error) {
+            if (!!error.status && error.status == 400) {
+                // HTTP 400 means transaction data is wrong,
+                // it's useless to repeat so mark as failed:
+                await this.operationRepository.updateFail(request.operationId, error.message);
+                await this.logService.write(LogLevel.warning, TransactionsController.name, this.broadcast.name, "Transaction rejected",
+                    error.message, error.name, error.stack);
+            } else {
+                throw error;
+            }
+        }
     }
 }

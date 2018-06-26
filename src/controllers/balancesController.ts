@@ -1,12 +1,12 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError, Post, Delete, HttpCode, OnNull, OnUndefined, Res, Ctx } from "routing-controllers";
-import { BalanceRepository, Balance } from "../domain/balances";
+import { BalanceRepository, BalanceEntity } from "../domain/balances";
 import { validateContinuation } from "../domain/queries";
-import { AssetRepository, Asset } from "../domain/assets";
+import { AssetRepository, AssetEntity } from "../domain/assets";
 import { EosService } from "../services/eosService";
 
 export class BalanceModel {
 
-    constructor(balance: Balance, asset: Asset, block: number) {
+    constructor(balance: BalanceEntity, asset: AssetEntity, block: number) {
         this.address = balance.Address;
         this.assetId = balance.AssetId;
         this.balance = (balance.Balance * (Math.pow(10, asset.Accuracy))).toFixed(0);

@@ -19,7 +19,7 @@ export class LogMiddleware implements KoaMiddlewareInterface {
         if (ctx.status >= 400) {
             const level = ctx.status < 500 ? LogLevel.warning
                 : LogLevel.error;
-            const component = "Lykke.Service.Eos.SignService";
+            const component = LogMiddleware.name;
             const process = ctx.url;
             const message = ctx.body && ctx.body.message || ctx.message;
             const context = ctx.request.body && JSON.stringify(ctx.request.body);

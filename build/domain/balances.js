@@ -14,7 +14,7 @@ const queries_1 = require("./queries");
 const util_1 = require("util");
 const azure_storage_1 = require("azure-storage");
 const typedi_1 = require("typedi");
-class Balance extends queries_1.AzureEntity {
+class BalanceEntity extends queries_1.AzureEntity {
     get Address() {
         return this.PartitionKey;
     }
@@ -26,17 +26,17 @@ __decorate([
     queries_1.Ignore(),
     __metadata("design:type", String),
     __metadata("design:paramtypes", [])
-], Balance.prototype, "Address", null);
+], BalanceEntity.prototype, "Address", null);
 __decorate([
     queries_1.Ignore(),
     __metadata("design:type", String),
     __metadata("design:paramtypes", [])
-], Balance.prototype, "AssetId", null);
+], BalanceEntity.prototype, "AssetId", null);
 __decorate([
     queries_1.Double(),
     __metadata("design:type", Number)
-], Balance.prototype, "Balance", void 0);
-exports.Balance = Balance;
+], BalanceEntity.prototype, "Balance", void 0);
+exports.BalanceEntity = BalanceEntity;
 let BalanceRepository = class BalanceRepository extends queries_1.AzureRepository {
     constructor(settings) {
         super(settings.EosApi.DataConnectionString);
@@ -50,12 +50,12 @@ let BalanceRepository = class BalanceRepository extends queries_1.AzureRepositor
      * @param affix Amount to add (if positive) or subtract (if negative)
      */
     async upsert(address, asset, affix) {
-        let entity = await this.select(Balance, this.tableName, address, asset.AssetId);
+        let entity = await this.select(BalanceEntity, this.tableName, address, asset.AssetId);
         if (entity) {
             entity.Balance += affix;
         }
         else {
-            entity = new Balance();
+            entity = new BalanceEntity();
             entity.PartitionKey = address;
             entity.RowKey = asset.AssetId;
             entity.Balance = affix;
@@ -65,10 +65,10 @@ let BalanceRepository = class BalanceRepository extends queries_1.AzureRepositor
     }
     async get(idOrTake, continuation) {
         if (util_1.isString(idOrTake)) {
-            return await this.select(Balance, this.tableName, idOrTake, "");
+            return await this.select(BalanceEntity, this.tableName, idOrTake, "");
         }
         else {
-            return await this.select(Balance, this.tableName, new azure_storage_1.TableQuery().top(idOrTake || 100), continuation);
+            return await this.select(BalanceEntity, this.tableName, new azure_storage_1.TableQuery().top(idOrTake || 100), continuation);
         }
     }
     async all() {
