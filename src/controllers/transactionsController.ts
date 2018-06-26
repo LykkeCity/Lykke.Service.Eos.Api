@@ -6,6 +6,7 @@ import { OperationRepository, OperationType } from "../domain/operations";
 import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
 import { LogService, LogLevel } from "../services/logService";
+import { ConflictError } from "../errors/conflictError";
 
 class BuildSingleRequest {
     @IsString()
@@ -131,7 +132,28 @@ export class TransactionsController {
         throw new BadRequestError("Unknown asset");
     }
 
+    private async ensureOperationNotBroadcasted(operationId: string) {
+        const operation = await this.operationRepository.get(operationId);
+        if (!!operation) {
+            if (!!operation.SendTime) {
+                throw new ConflictError("Operation already broadcasted");
+            } else if (!!operation.FailTime) {
+                throw new ConflictError("Operation failed while broadcasting, use another operationId to repeat");
+            }
+        }
+    }
+
     private async build(type: OperationType, operationId: string, assetId: string, inputsOutputs: { fromAddress: string, toAddress: string, amount: string }[]) {
+        if (inputsOutputs.some(a => !this.eosService.validate(a.fromAddress) || !this.eosService.validate(a.fromAddress))) {
+            throw new BadRequestError("Invalid address(es)");
+        }
+
+        if (inputsOutputs.some(a => Number.isNaN(Number.parseInt(a.amount)))) {
+            throw new BadRequestError("Invalid amount(s)");
+        }
+
+        await this.ensureOperationNotBroadcasted(operationId);
+
         const asset = await this.ensureAsset(assetId);
         const actions = inputsOutputs.map(e => ({ ...e, amount: asset.parse(e.amount) }));
         const context = {
@@ -196,11 +218,16 @@ export class TransactionsController {
     @OnNull(200)
     @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
+        await this.ensureOperationNotBroadcasted(request.operationId);
+
         try {
             const txId = await this.eosService.pushTransaction(fromBase64(request.signedTransaction));
             await this.operationRepository.updateSend(request.operationId, txId);
+
+            // TODO: update balances
+
         } catch (error) {
-            if (!!error.status && error.status == 400) {
+            if (error.status == 400) {
                 // HTTP 400 means transaction data is wrong,
                 // it's useless to repeat so mark as failed:
                 await this.operationRepository.updateFail(request.operationId, error.message);

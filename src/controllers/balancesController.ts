@@ -50,6 +50,7 @@ export class BalancesController {
     @OnNull(200)
     @OnUndefined(200)
     async observe(@Param("address") address: string) {
+        // always OK due to controlling observation by node's configuration
     }
 
     @Delete("/:address/observation")
@@ -57,5 +58,6 @@ export class BalancesController {
     @OnNull(200)
     @OnUndefined(200)
     async deleteObservation(@Param("address") address: string) {
+        // always OK due to controlling observation by node's configuration
     }
 }

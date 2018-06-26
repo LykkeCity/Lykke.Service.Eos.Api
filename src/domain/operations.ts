@@ -133,4 +133,8 @@ export class OperationRepository extends AzureRepository {
 
         await this.insertOrMerge(this.operationTableName, operationEntity);
     }
+
+    async get(operationId: string): Promise<OperationEntity> {
+        return await this.select(OperationEntity, this.operationTableName, operationId, "");
+    }
 }

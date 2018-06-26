@@ -1,6 +1,6 @@
 import { Service } from "typedi";
 import { promisify } from "util";
-import { Settings } from "../common";
+import { Settings, ADDRESS_SEPARATOR } from "../common";
 
 // EOSJS has no typings, so use it as regular node module
 const Eos = require("eosjs");
@@ -11,7 +11,7 @@ export class EosService {
     private eos: any;
 
     constructor(private settings: Settings) {
-        this.eos = Eos({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint, expireInSeconds: this.settings.EosApi.Eos.ExpireInSeconds });
+        this.eos = Eos({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint });
     }
 
     async getChainId(): Promise<string> {
@@ -22,11 +22,15 @@ export class EosService {
         return (await this.eos.getInfo({})).last_irreversible_block_num;
     }
 
-    async getTransactionHeaders(): Promise<any> {
+    async getTransactionHeaders() {
         return (await promisify(this.eos.createTransaction)(this.settings.EosApi.Eos.ExpireInSeconds));
     }
 
     async pushTransaction(tx: any): Promise<string> {
         return (await this.eos.pushTransaction(tx)).transaction_id;
+    }
+
+    validate(address: string): boolean {
+        return !!address && /^[.12345a-z]{1,12}$/.test(address.split(ADDRESS_SEPARATOR)[0])
     }
 }

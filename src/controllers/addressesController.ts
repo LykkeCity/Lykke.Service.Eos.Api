@@ -1,9 +1,13 @@
 import { JsonController, Get, Param } from "routing-controllers";
 import { NotImplementedError } from "../errors/notImplementedError";
 import { ADDRESS_SEPARATOR } from "../common";
+import { EosService } from "../services/eosService";
 
 @JsonController("/addresses")
 export class AddressesController {
+
+    constructor(private eosService: EosService) {
+    }
 
     @Get("/:address/explorer-url")
     explorerUrl(@Param("address") address: string) {
@@ -13,7 +17,7 @@ export class AddressesController {
     @Get("/:address/validity")
     isValid(@Param("address") address: string) {
         return {
-            isValid: !!address && /^[.12345a-z]{1,12}$/.test(address.split(ADDRESS_SEPARATOR)[0])
+            isValid: this.eosService.validate(address)
         };
     }
 }
