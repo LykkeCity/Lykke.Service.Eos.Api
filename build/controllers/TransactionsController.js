@@ -20,6 +20,8 @@ const operations_1 = require("../domain/operations");
 const common_1 = require("../common");
 const notImplementedError_1 = require("../errors/notImplementedError");
 const logService_1 = require("../services/logService");
+const conflictError_1 = require("../errors/conflictError");
+const blockchainError_1 = require("../errors/blockchainError");
 class BuildSingleRequest {
 }
 __decorate([
@@ -132,7 +134,13 @@ __decorate([
     class_validator_1.IsBase64(),
     __metadata("design:type", String)
 ], BroadcastRequest.prototype, "signedTransaction", void 0);
-let TransactionsController = TransactionsController_1 = class TransactionsController {
+var State;
+(function (State) {
+    State["inProgress"] = "inProgress";
+    State["completed"] = "completed";
+    State["failed"] = "failed";
+})(State || (State = {}));
+let TransactionsController = class TransactionsController {
     constructor(logService, eosService, assetRepository, operationRepository) {
         this.logService = logService;
         this.eosService = eosService;
@@ -149,9 +157,27 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
         }
         throw new routing_controllers_1.BadRequestError("Unknown asset");
     }
+    async ensureOperationNotBroadcasted(operationId) {
+        const operation = await this.operationRepository.get(operationId);
+        if (!!operation) {
+            if (!!operation.SendTime) {
+                throw new conflictError_1.ConflictError("Operation already broadcasted");
+            }
+            else if (!!operation.FailTime) {
+                throw new conflictError_1.ConflictError("Operation failed while broadcasting, use another operationId to repeat");
+            }
+        }
+    }
     async build(type, operationId, assetId, inputsOutputs) {
+        if (inputsOutputs.some(a => !this.eosService.validate(a.fromAddress) || !this.eosService.validate(a.fromAddress))) {
+            throw new routing_controllers_1.BadRequestError("Invalid address(es)");
+        }
+        if (inputsOutputs.some(a => Number.isNaN(Number.parseInt(a.amount)))) {
+            throw new routing_controllers_1.BadRequestError("Invalid amount(s)");
+        }
+        await this.ensureOperationNotBroadcasted(operationId);
         const asset = await this.ensureAsset(assetId);
-        const actions = inputsOutputs.map(e => (Object.assign({}, e, { amount: asset.parse(e.amount) })));
+        const actions = inputsOutputs.map(e => (Object.assign({}, e, { amount: asset.convert(e.amount) })));
         const context = {
             chainId: await this.eosService.getChainId(),
             headers: await this.eosService.getTransactionHeaders(),
@@ -179,29 +205,98 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
         return await this.build(operations_1.OperationType.Single, request.operationId, request.assetId, Array.of(request));
     }
     async buildManyInputs(request) {
-        return await this.build(operations_1.OperationType.MultiFrom, request.operationId, request.assetId, request.inputs.map(vin => (Object.assign({ toAddress: request.toAddress }, vin))));
+        return await this.build(operations_1.OperationType.ManyInputs, request.operationId, request.assetId, request.inputs.map(vin => (Object.assign({ toAddress: request.toAddress }, vin))));
     }
     async buildManyOutputs(request) {
-        return await this.build(operations_1.OperationType.MultiTo, request.operationId, request.assetId, request.outputs.map(vout => (Object.assign({ fromAddress: request.fromAddress }, vout))));
+        return await this.build(operations_1.OperationType.ManyOutputs, request.operationId, request.assetId, request.outputs.map(vout => (Object.assign({ fromAddress: request.fromAddress }, vout))));
     }
     async Rebuild() {
         throw new notImplementedError_1.NotImplementedError();
     }
     async broadcast(request) {
+        await this.ensureOperationNotBroadcasted(request.operationId);
         try {
             const txId = await this.eosService.pushTransaction(common_1.fromBase64(request.signedTransaction));
             await this.operationRepository.updateSend(request.operationId, txId);
+            // TODO: update balances
         }
         catch (error) {
-            if (!!error.status && error.status == 400) {
+            if (error.status == 400) {
+                throw new blockchainError_1.BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
                 // HTTP 400 means transaction data is wrong,
                 // it's useless to repeat so mark as failed:
-                await this.operationRepository.updateFail(request.operationId, error.message);
-                await this.logService.write(logService_1.LogLevel.warning, TransactionsController_1.name, this.broadcast.name, "Transaction rejected", error.message, error.name, error.stack);
+                //await this.operationRepository.updateFail(request.operationId, error.message);
+                //await this.logService.write(LogLevel.warning, TransactionsController.name, this.broadcast.name, "Transaction rejected",
+                //    error.message, error.name, error.stack);
             }
             else {
                 throw error;
             }
+        }
+    }
+    async getSingle(operationId) {
+        const operation = await this.operationRepository.get(operationId);
+        if (!!operation) {
+            const asset = await this.assetRepository.get(operation.AssetId);
+            return {
+                operationId,
+                state: !!operation.FailTime ? State.failed : !!operation.CompletionTime ? State.completed : State.inProgress,
+                timestamp: operation.FailTime || operation.CompletionTime || operation.SendTime,
+                amount: asset.convert(operation.Amount),
+                fee: "0",
+                hash: operation.TxId,
+                block: operation.Block,
+                error: operation.Error
+            };
+        }
+        else {
+            return null;
+        }
+    }
+    async getManyInputs(operationId) {
+        const operation = await this.operationRepository.get(operationId);
+        if (!!operation && operation.isNotBuiltOrDeleted()) {
+            const asset = await this.assetRepository.get(operation.AssetId);
+            const actions = await this.operationRepository.getActions(operationId);
+            return {
+                operationId,
+                state: !!operation.FailTime ? State.failed : !!operation.CompletionTime ? State.completed : State.inProgress,
+                timestamp: operation.FailTime || operation.CompletionTime || operation.SendTime,
+                inputs: actions.map(a => ({
+                    amount: asset.convert(a.Amount),
+                    fromAddress: a.From
+                })),
+                fee: "0",
+                hash: operation.TxId,
+                block: operation.Block,
+                error: operation.Error
+            };
+        }
+        else {
+            return null;
+        }
+    }
+    async getManyOutputs(operationId) {
+        const operation = await this.operationRepository.get(operationId);
+        if (!!operation) {
+            const asset = await this.assetRepository.get(operation.AssetId);
+            const actions = await this.operationRepository.getActions(operationId);
+            return {
+                operationId,
+                state: !!operation.FailTime ? State.failed : !!operation.CompletionTime ? State.completed : State.inProgress,
+                timestamp: operation.FailTime || operation.CompletionTime || operation.SendTime,
+                outputs: actions.map(a => ({
+                    amount: asset.convert(a.Amount),
+                    toAddress: a.To
+                })),
+                fee: "0",
+                hash: operation.TxId,
+                block: operation.Block,
+                error: operation.Error
+            };
+        }
+        else {
+            return null;
         }
     }
 };
@@ -241,7 +336,34 @@ __decorate([
     __metadata("design:paramtypes", [BroadcastRequest]),
     __metadata("design:returntype", Promise)
 ], TransactionsController.prototype, "broadcast", null);
-TransactionsController = TransactionsController_1 = __decorate([
+__decorate([
+    routing_controllers_1.Get("/broadcast/single/:operationId"),
+    routing_controllers_1.OnNull(204),
+    routing_controllers_1.OnUndefined(204),
+    __param(0, routing_controllers_1.Param("operationId")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], TransactionsController.prototype, "getSingle", null);
+__decorate([
+    routing_controllers_1.Get("/broadcast/many-inputs/:operationId"),
+    routing_controllers_1.OnNull(204),
+    routing_controllers_1.OnUndefined(204),
+    __param(0, routing_controllers_1.Param("operationId")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], TransactionsController.prototype, "getManyInputs", null);
+__decorate([
+    routing_controllers_1.Get("/broadcast/many-outputs/:operationId"),
+    routing_controllers_1.OnNull(204),
+    routing_controllers_1.OnUndefined(204),
+    __param(0, routing_controllers_1.Param("operationId")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], TransactionsController.prototype, "getManyOutputs", null);
+TransactionsController = __decorate([
     routing_controllers_1.JsonController("/transactions"),
     __metadata("design:paramtypes", [logService_1.LogService,
         eosService_1.EosService,
@@ -249,5 +371,4 @@ TransactionsController = TransactionsController_1 = __decorate([
         operations_1.OperationRepository])
 ], TransactionsController);
 exports.TransactionsController = TransactionsController;
-var TransactionsController_1;
 //# sourceMappingURL=transactionsController.js.map

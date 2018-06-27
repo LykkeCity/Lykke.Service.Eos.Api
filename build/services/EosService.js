@@ -17,7 +17,7 @@ const Eos = require("eosjs");
 let EosService = class EosService {
     constructor(settings) {
         this.settings = settings;
-        this.eos = Eos({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint, expireInSeconds: this.settings.EosApi.Eos.ExpireInSeconds });
+        this.eos = Eos({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint });
     }
     async getChainId() {
         return (await this.eos.getInfo({})).chain_id;
@@ -30,6 +30,9 @@ let EosService = class EosService {
     }
     async pushTransaction(tx) {
         return (await this.eos.pushTransaction(tx)).transaction_id;
+    }
+    validate(address) {
+        return !!address && /^[.12345a-z]{1,12}$/.test(address.split(common_1.ADDRESS_SEPARATOR)[0]);
     }
 };
 EosService = __decorate([

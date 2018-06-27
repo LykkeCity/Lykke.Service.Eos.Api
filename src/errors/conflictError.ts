@@ -1,9 +1,9 @@
-import { HttpError } from "routing-controllers";
+import { BlockchainError } from "./blockchainError";
 
-export class ConflictError extends HttpError {
+export class ConflictError extends BlockchainError {
 
     constructor(message?: string) {
-        super(409, message);
+        super({ status: 409, message: message });
     }
 
 }

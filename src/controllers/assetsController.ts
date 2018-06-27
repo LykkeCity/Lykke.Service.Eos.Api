@@ -37,8 +37,8 @@ export class AssetsController {
         const query = await this.assetRepository.get(take, continuation);
 
         return {
-            items: query.items.map(e => new AssetModel(e)),
-            continuation: query.continuation
+            continuation: query.continuation,
+            items: query.items.map(e => (new AssetModel(e)))
         };
     }
 

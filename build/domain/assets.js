@@ -21,8 +21,13 @@ class AssetEntity extends queries_1.AzureEntity {
     get AssetId() {
         return this.PartitionKey;
     }
-    parse(integerString) {
-        return parseInt(integerString) / Math.pow(10, this.Accuracy);
+    convert(decimalNumberOrIntegerString) {
+        if (util_1.isNumber(decimalNumberOrIntegerString)) {
+            return decimalNumberOrIntegerString * Math.pow(10, this.Accuracy);
+        }
+        else {
+            return parseInt(decimalNumberOrIntegerString) / Math.pow(10, this.Accuracy);
+        }
     }
 }
 __decorate([

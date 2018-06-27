@@ -1,15 +1,12 @@
-import { TableQuery, TableBatch } from "azure-storage";
+import { TableQuery, date } from "azure-storage";
 import { Settings } from "../common";
 import { AzureRepository, AzureEntity, Ignore, Int64, Double } from "./queries";
-import { isDate, isString } from "util";
-import { AssetEntity } from "./assets";
 import { Service } from "typedi";
 
 export enum OperationType {
     Single = "Single",
-    MultiFrom = "MultiFrom",
-    MultiTo = "MultiTo",
-    MultiFromMultiTo = "MultiFromMultiTo"
+    ManyInputs = "ManyInputs",
+    ManyOutputs = "ManyOutputs",
 }
 
 export class OperationEntity extends AzureEntity {
@@ -24,6 +21,9 @@ export class OperationEntity extends AzureEntity {
     @Double()
     Amount: number;
 
+    @Int64()
+    AmountInBaseUnit: number;
+
     BuildTime: Date;
     ExpiryTime: Date;
     SendTime: Date;
@@ -36,6 +36,19 @@ export class OperationEntity extends AzureEntity {
 
     FailTime: Date;
     Error: string;
+    DeleteTime: Date;
+
+    isNotBuiltOrDeleted(): boolean {
+        return !this.DeleteTime && (this.isSent() || this.isFailed());
+    }
+
+    isSent(): boolean {
+        return !!this.SendTime;
+    }
+
+    isFailed(): boolean {
+        return !!this.FailTime;
+    }
 }
 
 export class OperationActionEntity extends AzureEntity {
@@ -50,6 +63,9 @@ export class OperationActionEntity extends AzureEntity {
 
     @Double()
     Amount: number;
+
+    @Int64()
+    AmountInBaseUnit: number;
 }
 
 export class OperationByExpiryTimeEntity extends AzureEntity {
@@ -85,13 +101,17 @@ export class OperationRepository extends AzureRepository {
         super(settings.EosApi.DataConnectionString);
     }
 
-    async upsert(operationId: string, type: OperationType, assetId: string, actions: { fromAddress: string, toAddress: string, amount: number }[], expiryTime: Date) {
+    async upsert(operationId: string, type: OperationType, assetId: string,
+        actions: { fromAddress: string, toAddress: string, amount: number, amountInBaseUnit: number }[],
+        expiryTime: Date) {
+
         const operationEntity = new OperationEntity();
         operationEntity.PartitionKey = operationId;
         operationEntity.RowKey = "";
         operationEntity.Type = type;
         operationEntity.AssetId = assetId;
         operationEntity.Amount = actions.reduce((sum, action) => sum + action.amount, 0);
+        operationEntity.AmountInBaseUnit = actions.reduce((sum, action) => sum + action.amountInBaseUnit, 0);
         operationEntity.BuildTime = new Date();
         operationEntity.ExpiryTime = expiryTime;
 
@@ -102,6 +122,7 @@ export class OperationRepository extends AzureRepository {
             entity.From = action.fromAddress;
             entity.To = action.toAddress;
             entity.Amount = action.amount;
+            entity.AmountInBaseUnit = action.amountInBaseUnit;
             return entity;
         });
 
@@ -114,27 +135,61 @@ export class OperationRepository extends AzureRepository {
         await this.insertOrMerge(this.operationByExpiryTimeTableName, operationByExpiryTimeEntity);
     }
 
-    async updateSend(operationId: string, txId: string) {
+    async update(operationId: string,
+        operation: { sendTime?: Date, completionTime?: Date, failTime?: Date, deleteTime?: Date, txId?: string, blockTime?: Date, block?: number, error?: string }) {
         const operationEntity = new OperationEntity();
         operationEntity.PartitionKey = operationId;
         operationEntity.RowKey = "";
-        operationEntity.SendTime = new Date();
-        operationEntity.TxId = txId;
-
-        await this.insertOrMerge(this.operationTableName, operationEntity);
-    }
-
-    async updateFail(operationId: string, error: string) {
-        const operationEntity = new OperationEntity();
-        operationEntity.PartitionKey = operationId;
-        operationEntity.RowKey = "";
-        operationEntity.FailTime = new Date();
-        operationEntity.Error = error;
+        operationEntity.SendTime = operation.sendTime;
+        operationEntity.CompletionTime = operation.completionTime;
+        operationEntity.FailTime = operation.failTime;
+        operationEntity.DeleteTime = operation.deleteTime;
+        operationEntity.TxId = operation.txId;
+        operationEntity.BlockTime = operation.blockTime;
+        operationEntity.Block = operation.block;
+        operationEntity.Error = operation.error;
 
         await this.insertOrMerge(this.operationTableName, operationEntity);
     }
 
     async get(operationId: string): Promise<OperationEntity> {
         return await this.select(OperationEntity, this.operationTableName, operationId, "");
+    }
+
+    async getActions(operationId: string): Promise<OperationActionEntity[]> {
+        return await this.selectAll(async (c) => await this.select(OperationActionEntity, this.operationActionTableName, new TableQuery().where("PartitionKey == ?", operationId), c));
+    }
+
+    async getOperationIdByTxId(txId: string) {
+        const operationByTxIdEntity = await this.select(OperationByTxIdEntity, this.operationByTxIdTableName, txId, "");
+        if (!!operationByTxIdEntity) {
+            return operationByTxIdEntity.OperationId;
+        } else {
+            return null;
+        }
+    }
+
+    async handleExpiration(from: Date, to: Date) {
+        let continuation: string = null;
+
+        const query = new TableQuery()
+            .where("PartitionKey > ? and PartitionKey <= ?", from.toISOString(), to.toISOString());
+
+        do {
+            const chunk = await this.select(OperationByExpiryTimeEntity, this.operationByExpiryTimeTableName, query, continuation);
+
+            for (const entity of chunk.items) {
+                const operation = await this.select(OperationEntity, this.operationTableName, entity.OperationId, "")
+                if (!!operation && operation.isNotCompletedOrFailed()) {
+                    await this.update(entity.OperationId, {
+                        failTime: new Date(),
+                        error: "Transaction expired"
+                    });
+                }
+            }
+
+            continuation = chunk.continuation;
+
+        } while (!!continuation)
     }
 }

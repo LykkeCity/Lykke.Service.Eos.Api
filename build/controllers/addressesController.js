@@ -14,14 +14,17 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
 const notImplementedError_1 = require("../errors/notImplementedError");
-const common_1 = require("../common");
+const eosService_1 = require("../services/eosService");
 let AddressesController = class AddressesController {
+    constructor(eosService) {
+        this.eosService = eosService;
+    }
     explorerUrl(address) {
         throw new notImplementedError_1.NotImplementedError();
     }
     isValid(address) {
         return {
-            isValid: !!address && /^[.12345a-z]{1,12}$/.test(address.split(common_1.ADDRESS_SEPARATOR)[0])
+            isValid: this.eosService.validate(address)
         };
     }
 };
@@ -40,7 +43,8 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AddressesController.prototype, "isValid", null);
 AddressesController = __decorate([
-    routing_controllers_1.JsonController("/addresses")
+    routing_controllers_1.JsonController("/addresses"),
+    __metadata("design:paramtypes", [eosService_1.EosService])
 ], AddressesController);
 exports.AddressesController = AddressesController;
 //# sourceMappingURL=addressesController.js.map

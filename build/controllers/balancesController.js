@@ -48,8 +48,10 @@ let BalancesController = class BalancesController {
         };
     }
     async observe(address) {
+        // always OK due to controlling observation by node's configuration
     }
     async deleteObservation(address) {
+        // always OK due to controlling observation by node's configuration
     }
 };
 __decorate([

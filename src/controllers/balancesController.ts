@@ -4,25 +4,13 @@ import { validateContinuation } from "../domain/queries";
 import { AssetRepository, AssetEntity } from "../domain/assets";
 import { EosService } from "../services/eosService";
 
-export class BalanceModel {
-
-    constructor(balance: BalanceEntity, asset: AssetEntity, block: number) {
-        this.address = balance.Address;
-        this.assetId = balance.AssetId;
-        this.balance = (balance.Balance * (Math.pow(10, asset.Accuracy))).toFixed(0);
-        this.block = block;
-    }
-
-    address: string;
-    assetId: string;
-    balance: string;
-    block: number;
-}
-
 @JsonController("/balances")
 export class BalancesController {
 
-    constructor(private assetRepository: AssetRepository, private balanceRepository: BalanceRepository, private eos: EosService) {
+    constructor(
+        private assetRepository: AssetRepository,
+        private balanceRepository: BalanceRepository,
+        private eosService: EosService) {
     }
 
     @Get()
@@ -35,13 +23,19 @@ export class BalancesController {
             throw new BadRequestError(`Query parameter "continuation" is invalid`);
         }
 
-        const blockNumber = await this.eos.getLastIrreversibleBlockNumber();
-        const result = await this.balanceRepository.get(take, continuation);
-        const assets = await this.assetRepository.all();
+        const block = await this.eosService.getLastIrreversibleBlockNumber();
+        const query = await this.balanceRepository.get(take, continuation);
 
         return {
-            items: result.items.filter(e => e.Balance > 0).map(e => new BalanceModel(e, assets.find(a => a.AssetId == e.AssetId), blockNumber)),
-            continuation: result.continuation
+            continuation: query.continuation,
+            items: query.items
+                .filter(e => e.Amount > 0)
+                .map(e => ({
+                    address: e.Address,
+                    assetId: e.AssetId,
+                    balance: e.AmountInBaseUnit.toFixed(),
+                    block: block
+                }))
         };
     }
 

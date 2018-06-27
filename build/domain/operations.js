@@ -9,19 +9,28 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const azure_storage_1 = require("azure-storage");
 const common_1 = require("../common");
 const queries_1 = require("./queries");
 const typedi_1 = require("typedi");
 var OperationType;
 (function (OperationType) {
     OperationType["Single"] = "Single";
-    OperationType["MultiFrom"] = "MultiFrom";
-    OperationType["MultiTo"] = "MultiTo";
-    OperationType["MultiFromMultiTo"] = "MultiFromMultiTo";
+    OperationType["ManyInputs"] = "ManyInputs";
+    OperationType["ManyOutputs"] = "ManyOutputs";
 })(OperationType = exports.OperationType || (exports.OperationType = {}));
 class OperationEntity extends queries_1.AzureEntity {
     get OperationId() {
         return this.PartitionKey;
+    }
+    isNotBuiltOrDeleted() {
+        return !this.DeleteTime && (this.isSent() || this.isFailed());
+    }
+    isSent() {
+        return !!this.SendTime;
+    }
+    isFailed() {
+        return !!this.FailTime;
     }
 }
 __decorate([
@@ -132,6 +141,12 @@ let OperationRepository = class OperationRepository extends queries_1.AzureRepos
         operationEntity.FailTime = new Date();
         operationEntity.Error = error;
         await this.insertOrMerge(this.operationTableName, operationEntity);
+    }
+    async get(operationId) {
+        return await this.select(OperationEntity, this.operationTableName, operationId, "");
+    }
+    async getActions(operationId) {
+        return await this.selectAll(async (c) => await this.select(OperationActionEntity, this.operationActionTableName, new azure_storage_1.TableQuery().where("PartitionKey == ?", operationId), c));
     }
 };
 OperationRepository = __decorate([

@@ -27,8 +27,12 @@ export class AssetEntity extends AzureEntity {
     @Int32()
     Accuracy: number;
 
-    parse(integerString: string) {
-        return parseInt(integerString) / Math.pow(10, this.Accuracy);
+    fromBaseUnit(value: number): number {
+        return value / Math.pow(10, this.Accuracy);
+    }
+
+    toBaseUnit(value: number): number {
+        return value * Math.pow(10, this.Accuracy);
     }
 }
 
