@@ -1,11 +1,11 @@
 import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnNull, OnUndefined, QueryParam, HttpCode } from "routing-controllers";
-import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
+import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID, IsJSON } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository, AssetEntity } from "../domain/assets";
 import { OperationRepository, OperationType, OperationEntity } from "../domain/operations";
 import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
-import { LogService, LogLevel } from "../services/logService";
+import { LogService } from "../services/logService";
 import { ConflictError } from "../errors/conflictError";
 import { BlockchainError } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
@@ -117,6 +117,10 @@ enum State {
     failed = "failed"
 }
 
+class SignedTransactionModel {
+    txId: string;
+}
+
 @JsonController("/transactions")
 export class TransactionsController {
 
@@ -149,11 +153,13 @@ export class TransactionsController {
         throw new BadRequestError("Unknown asset");
     }
 
-    private async ensureOperationNotBroadcasted(operationId: string) {
+    private async ensureOperationNotBroadcasted(operationId: string): Promise<OperationEntity> {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             throw new ConflictError("Operation already broadcasted");
         }
+
+        return operation;
     }
 
     private async build(type: OperationType, operationId: string, assetId: string,
@@ -175,6 +181,9 @@ export class TransactionsController {
             amount: asset.fromBaseUnit(parseInt(e.amount)),
             amountInBaseUnit: parseInt(e.amount)
         }));
+
+        // TODO: check balances
+
         const context = {
             chainId: await this.eosService.getChainId(),
             headers: await this.eosService.getTransactionHeaders(),
@@ -182,9 +191,9 @@ export class TransactionsController {
                 .filter(action => !this.isFake(action))
                 .map(action => {
                     const from = action.fromAddress.split(ADDRESS_SEPARATOR)[0];
-                    const memo = action.fromAddress.split(ADDRESS_SEPARATOR)[1] || "";
                     const to = action.toAddress.split(ADDRESS_SEPARATOR)[0];
                     const quantity = `${action.amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
+                    const memo = action.toAddress.split(ADDRESS_SEPARATOR)[1] || "";
                     return {
                         account: asset.Address,
                         name: "transfer",
@@ -258,23 +267,33 @@ export class TransactionsController {
     @OnNull(200)
     @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
-        await this.ensureOperationNotBroadcasted(request.operationId);
-
-        try {
-            const txId = await this.eosService.pushTransaction(fromBase64(request.signedTransaction));
-            await this.operationRepository.update(request.operationId, {
-                sendTime: new Date(),
-                txId
-            });
+        const operation = await this.ensureOperationNotBroadcasted(request.operationId);
+        const operationActions = await this.operationRepository.getActions(request.operationId);
+        const block = await this.eosService.getLastIrreversibleBlockNumber();
+        const now = new Date();
+        const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
+        if (!!tx.txId) {
+            await this.operationRepository.update(request.operationId, { sendTime: now, txId: tx.txId, completionTime: now, blockTime: now, block: block });
+            for (const action of operationActions) {
+                await this.historyRepository.upsert(action.From, action.To, operation.AssetId, action.Amount, action.AmountInBaseUnit,
+                    block, now, tx.txId, action.RowKey, operation.OperationId);
+            }
+        } else {
+            try {
+                const txId = await this.eosService.pushTransaction(tx);
+                await this.operationRepository.update(request.operationId, { sendTime: now, txId });
+            } catch (error) {
+                if (error.status == 400) {
+                    throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
+                } else {
+                    throw error;
+                }
+            }
 
             // TODO: update balances
 
-        } catch (error) {
-            if (error.status == 400) {
-                throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
-            } else {
-                throw error;
-            }
+            await this.historyRepository.upsert(action.From, action.To, operation.AssetId, action.Amount, action.AmountInBaseUnit,
+                block, now, tx.txId, action.RowKey, operation.OperationId);
         }
     }
 
@@ -359,12 +378,20 @@ export class TransactionsController {
     }
 
     @Get("/history/from/:address")
-    async getHistoryFrom(@Param("address") address: string, @QueryParam("take", { required: true }) take: number, @QueryParam("afterHash") afterHash: string) {
+    async getHistoryFrom(
+        @Param("address") address: string,
+        @QueryParam("take", { required: true }) take: number,
+        @QueryParam("afterHash") afterHash: string) {
+
         return await this.getHistory(HistoryAddressCategory.From, address, take, afterHash);
     }
 
     @Get("/history/to/:address")
-    async getHistoryTo(@Param("address") address: string, @QueryParam("take", { required: true }) take: number, @QueryParam("afterHash") afterHash: string) {
+    async getHistoryTo(
+        @Param("address") address: string,
+        @QueryParam("take", { required: true }) take: number,
+        @QueryParam("afterHash") afterHash: string) {
+
         return await this.getHistory(HistoryAddressCategory.To, address, take, afterHash);
     }
 

@@ -1,9 +1,15 @@
-import { AssetEntity } from "./assets";
 import { Settings } from "../common";
 import { AzureEntity, AzureRepository, Ignore, Double, AzureQueryResult, Int64 } from "./queries";
 import { isString } from "util";
 import { TableQuery } from "azure-storage";
 import { Service } from "typedi";
+
+export class AddressEntity extends AzureEntity {
+    @Ignore()
+    get Address(): string {
+        return this.PartitionKey;
+    }
+}
 
 export class BalanceEntity extends AzureEntity {
 
@@ -27,44 +33,70 @@ export class BalanceEntity extends AzureEntity {
 @Service()
 export class BalanceRepository extends AzureRepository {
 
-    private tableName: string = "EosBalances";
+    private addressTableName: string = "EosBalanceAddresses";
+    private balanceTableName: string = "EosBalances";
 
     constructor(private settings: Settings) {
         super(settings.EosApi.DataConnectionString);
     }
 
+    async observe(address: string) {
+        const entity = new AddressEntity();
+        entity.PartitionKey = address;
+        entity.RowKey = "";
+
+        await this.insertOrMerge(this.addressTableName, entity);
+    }
+
+    async isObservable(address: string): Promise<boolean> {
+        return !!(await this.select(AddressEntity, this.addressTableName, address, ""));
+    }
+
     /**
-     * Updates or creates balance record for address.
+     * Creates, updates or removes balance record for address.
      * @param address Address
      * @param assetId Asset
      * @param affix Amount to add (if positive) or subtract (if negative)
      */
-    async upsert(address: string, assetId: string, affix: number, affixInBaseUnit: number): Promise<BalanceEntity> {
-        let entity = await this.select(BalanceEntity, this.tableName, address, assetId);
-
-        if (entity) {
-            entity.Amount += affix;
-            entity.AmountInBaseUnit += affixInBaseUnit;
-        } else {
+    async modify(address: string, assetId: string, affix: number, affixInBaseUnit: number): Promise<{ amount: number, amountInBaseUnit: number }> {
+        let entity = await this.select(BalanceEntity, this.balanceTableName, address, assetId);
+        if (entity == null) {
             entity = new BalanceEntity();
             entity.PartitionKey = address;
             entity.RowKey = assetId;
-            entity.Amount = affix;
-            entity.AmountInBaseUnit = affixInBaseUnit;
         }
 
-        await this.insertOrMerge(this.tableName, entity);
+        entity.Amount += affix;
+        entity.AmountInBaseUnit += affixInBaseUnit;
 
-        return entity;
+        if (entity.AmountInBaseUnit != 0) {
+            await this.insertOrMerge(this.balanceTableName, entity);
+        } else {
+            await this.delete(this.balanceTableName, entity.PartitionKey, entity.RowKey);
+        }
+
+        return {
+            amount: entity.Amount,
+            amountInBaseUnit: entity.AmountInBaseUnit
+        };
     }
 
-    async get(id: string): Promise<BalanceEntity>;
-    async get(take: number, continuation?: string): Promise<AzureQueryResult<BalanceEntity>>;
-    async get(idOrTake: string | number, continuation?: string): Promise<BalanceEntity | AzureQueryResult<BalanceEntity>> {
-        if (isString(idOrTake)) {
-            return await this.select(BalanceEntity, this.tableName, idOrTake, "");
+    async remove(address: string, assetId?: string) {
+        if (!!assetId) {
+            await this.delete(this.balanceTableName, address, assetId);
         } else {
-            return await this.select(BalanceEntity, this.tableName, new TableQuery().top(idOrTake || 100), continuation);
+            await this.delete(this.addressTableName, address, "");
+            await this.deleteAll(BalanceEntity, this.balanceTableName, new TableQuery().where("PartitionKey == ?", address));
+        }
+    }
+
+    async get(address: string, assetId: string): Promise<BalanceEntity>;
+    async get(take: number, continuation?: string): Promise<AzureQueryResult<BalanceEntity>>;
+    async get(addressOrTake: string | number, assetIdOrcontinuation?: string): Promise<BalanceEntity | AzureQueryResult<BalanceEntity>> {
+        if (isString(addressOrTake)) {
+            return await this.select(BalanceEntity, this.balanceTableName, addressOrTake, assetIdOrcontinuation);
+        } else {
+            return await this.select(BalanceEntity, this.balanceTableName, new TableQuery().top(addressOrTake || 100), assetIdOrcontinuation);
         }
     }
 

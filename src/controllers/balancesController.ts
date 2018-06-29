@@ -3,6 +3,7 @@ import { BalanceRepository, BalanceEntity } from "../domain/balances";
 import { validateContinuation } from "../domain/queries";
 import { AssetRepository, AssetEntity } from "../domain/assets";
 import { EosService } from "../services/eosService";
+import { ConflictError } from "../errors/conflictError";
 
 @JsonController("/balances")
 export class BalancesController {
@@ -14,7 +15,10 @@ export class BalancesController {
     }
 
     @Get()
-    async balances(@QueryParam("take", { required: true }) take: number, @QueryParam("continuation") continuation?: string) {
+    async balances(
+        @QueryParam("take", { required: true }) take: number,
+        @QueryParam("continuation") continuation?: string) {
+
         if (take <= 0) {
             throw new BadRequestError(`Query parameter "take" is required`);
         }
@@ -28,30 +32,34 @@ export class BalancesController {
 
         return {
             continuation: query.continuation,
-            items: query.items
-                .filter(e => e.Amount > 0)
-                .map(e => ({
-                    address: e.Address,
-                    assetId: e.AssetId,
-                    balance: e.AmountInBaseUnit.toFixed(),
-                    block: block
-                }))
+            items: query.items.map(e => ({
+                address: e.Address,
+                assetId: e.AssetId,
+                balance: e.AmountInBaseUnit.toFixed(),
+                block: block
+            }))
         };
     }
 
     @Post("/:address/observation")
-    @HttpCode(200)
     @OnNull(200)
     @OnUndefined(200)
     async observe(@Param("address") address: string) {
-        // always OK due to controlling observation by node's configuration
+        if (await this.balanceRepository.isObservable(address)) {
+            throw new ConflictError("Address is already observed");
+        } else {
+            await this.balanceRepository.observe(address);
+        }
     }
 
     @Delete("/:address/observation")
-    @HttpCode(200)
-    @OnNull(200)
+    @OnNull(204)
     @OnUndefined(200)
-    async deleteObservation(@Param("address") address: string) {
-        // always OK due to controlling observation by node's configuration
+    async deleteObservation(@Param("address") address: string): Promise<any> {
+        if (await this.balanceRepository.isObservable(address)) {
+            await this.balanceRepository.remove(address);
+        } else {
+            return null;
+        }
     }
 }

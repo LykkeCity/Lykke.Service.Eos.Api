@@ -25,7 +25,10 @@ export class AssetsController {
     }
 
     @Get()
-    async list(@QueryParam("take", { required: true }) take: number, @QueryParam("continuation") continuation: string) {
+    async list(
+        @QueryParam("take", { required: true }) take: number,
+        @QueryParam("continuation") continuation: string) {
+
         if (take <= 0) {
             throw new BadRequestError(`Query parameter "take" is required`);
         }
