@@ -5,10 +5,11 @@ import { AssetRepository, AssetEntity } from "../domain/assets";
 import { OperationRepository, OperationType, OperationEntity } from "../domain/operations";
 import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
-import { LogService } from "../services/logService";
+import { LogService, LogLevel } from "../services/logService";
 import { ConflictError } from "../errors/conflictError";
-import { BlockchainError } from "../errors/blockchainError";
+import { BlockchainError, ErrorCode } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
+import { BalanceEntity, BalanceRepository } from "../domain/balances";
 
 class BuildSingleRequest {
     @IsString()
@@ -129,11 +130,16 @@ export class TransactionsController {
         private eosService: EosService,
         private operationRepository: OperationRepository,
         private assetRepository: AssetRepository,
-        private historyRepository: HistoryRepository) {
+        private historyRepository: HistoryRepository,
+        private balanceRepository: BalanceRepository) {
     }
 
-    private isFake(action: { fromAddress: string, toAddress: string }): boolean {
-        return action.fromAddress.split(ADDRESS_SEPARATOR)[0] == action.toAddress.split(ADDRESS_SEPARATOR)[0];
+    private getAccount(address: string) {
+        return address.split(ADDRESS_SEPARATOR)[0];
+    }
+
+    private isSimulated(from: string, to: string): boolean {
+        return this.getAccount(from) == this.getAccount(to);
     }
 
     private getState(operation: OperationEntity): State {
@@ -144,66 +150,77 @@ export class TransactionsController {
         return operation.FailTime || operation.CompletionTime || operation.SendTime;
     }
 
-    private async ensureAsset(assetId: string): Promise<AssetEntity> {
-        const asset = await this.assetRepository.get(assetId);
-        if (!!asset) {
-            return asset;
-        }
 
-        throw new BadRequestError("Unknown asset");
-    }
-
-    private async ensureOperationNotBroadcasted(operationId: string): Promise<OperationEntity> {
+    private async build(type: OperationType, operationId: string, assetId: string, inOut: { fromAddress: string, toAddress: string, amount: string }[]) {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
-            throw new ConflictError("Operation already broadcasted");
+            throw new BlockchainError({ status: 409, message: `Operation [${operationId}] already broadcasted` });
         }
 
-        return operation;
-    }
-
-    private async build(type: OperationType, operationId: string, assetId: string,
-        inOut: { fromAddress: string, toAddress: string, amount: string }[]) {
-
-        if (inOut.some(a => !this.eosService.validate(a.fromAddress) || !this.eosService.validate(a.fromAddress))) {
-            throw new BadRequestError("Invalid address(es)");
+        const asset = await this.assetRepository.get(assetId);
+        if (asset == null) {
+            throw new BlockchainError({ status: 400, message: `Unknown asset [${assetId}]` });
         }
 
-        if (inOut.some(a => Number.isNaN(parseInt(a.amount)) || parseInt(a.amount) == 0)) {
-            throw new BadRequestError("Invalid amount(s)");
+        const opActions = [];
+        const txActions = [];
+
+        for (const action of inOut) {
+
+            if (!this.eosService.validate(action.fromAddress)) {
+                throw new BlockchainError({ status: 400, message: `Invalid address [${action.fromAddress}]` });
+            }
+
+            if (!this.eosService.validate(action.toAddress)) {
+                throw new BlockchainError({ status: 400, message: `Invalid address [${action.toAddress}]` });
+            }
+
+            const amountInBaseUnit = parseInt(action.amount);
+
+            if (Number.isNaN(amountInBaseUnit) || amountInBaseUnit <= 0) {
+                throw new BlockchainError({ status: 400, message: `Invalid amount [${action.amount}]` });
+            }
+
+            const amount = asset.fromBaseUnit(amountInBaseUnit);
+
+            opActions.push({
+                ...action,
+                amountInBaseUnit: amountInBaseUnit,
+                amount: amount
+            });
+
+            let balanceInBaseUnit = 0;
+
+            if (this.isSimulated(action.fromAddress, action.toAddress)) {
+                const balanceEntity = await this.balanceRepository.get(action.fromAddress, assetId);
+                balanceInBaseUnit = balanceEntity && balanceEntity.AmountInBaseUnit;
+            } else {
+                const from = this.getAccount(action.fromAddress);
+                const to = this.getAccount(action.toAddress);
+                const quantity = `${amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
+                const memo = action.toAddress.split(ADDRESS_SEPARATOR)[1] || "";
+                const balanceAmount = await this.eosService.getBalance(from, asset.Address, asset.AssetId);
+                balanceInBaseUnit = asset.toBaseUnit(balanceAmount);
+                txActions.push({
+                    account: asset.Address,
+                    name: "transfer",
+                    authorization: [{ actor: from, permission: "active" }],
+                    data: { from, to, quantity, memo }
+                });
+            }
+
+            if (balanceInBaseUnit < amountInBaseUnit) {
+                throw new BlockchainError({ status: 400, message: `Not enough balance on address [${action.fromAddress}]`, errorCode: ErrorCode.notEnoughBalance });
+            }
         }
-
-        await this.ensureOperationNotBroadcasted(operationId);
-
-        const asset = await this.ensureAsset(assetId);
-        const actions = inOut.map(e => ({
-            ...e,
-            amount: asset.fromBaseUnit(parseInt(e.amount)),
-            amountInBaseUnit: parseInt(e.amount)
-        }));
-
-        // TODO: check balances
 
         const context = {
             chainId: await this.eosService.getChainId(),
             headers: await this.eosService.getTransactionHeaders(),
-            actions: actions
-                .filter(action => !this.isFake(action))
-                .map(action => {
-                    const from = action.fromAddress.split(ADDRESS_SEPARATOR)[0];
-                    const to = action.toAddress.split(ADDRESS_SEPARATOR)[0];
-                    const quantity = `${action.amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
-                    const memo = action.toAddress.split(ADDRESS_SEPARATOR)[1] || "";
-                    return {
-                        account: asset.Address,
-                        name: "transfer",
-                        authorization: [{ actor: from, permission: "active" }],
-                        data: { from, to, quantity, memo }
-                    };
-                })
-        }
+            actions: txActions
+        };
 
-        await this.operationRepository.upsert(operationId, type, assetId, actions, isoUTC(context.headers.expiration));
+        await this.operationRepository.upsert(operationId, type, assetId, opActions, isoUTC(context.headers.expiration));
 
         return {
             transactionContext: toBase64(context)
@@ -212,11 +229,11 @@ export class TransactionsController {
 
     private async getHistory(category: HistoryAddressCategory, address: string, take: number, afterHash: string) {
         if (take <= 0) {
-            throw new BadRequestError(`Query parameter "take" is required`);
+            throw new BadRequestError("Query parameter [take] is required");
         }
 
         if (!this.eosService.validate(address)) {
-            throw new BadRequestError("Invalid address");
+            throw new BadRequestError(`Invalid address [${address}]`);
         }
 
         const history = await this.historyRepository.get(category, address, take, afterHash);
@@ -267,33 +284,50 @@ export class TransactionsController {
     @OnNull(200)
     @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
-        const operation = await this.ensureOperationNotBroadcasted(request.operationId);
+        const operation = await this.operationRepository.get(request.operationId);
         const operationActions = await this.operationRepository.getActions(request.operationId);
         const block = await this.eosService.getLastIrreversibleBlockNumber();
         const now = new Date();
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
-        if (!!tx.txId) {
-            await this.operationRepository.update(request.operationId, { sendTime: now, txId: tx.txId, completionTime: now, blockTime: now, block: block });
-            for (const action of operationActions) {
-                await this.historyRepository.upsert(action.From, action.To, operation.AssetId, action.Amount, action.AmountInBaseUnit,
-                    block, now, tx.txId, action.RowKey, operation.OperationId);
-            }
+        let txId = tx.txId;
+
+        if (!!txId) {
+            // for fully simulated transaction we mark
+            // operation as completed immediately
+            await this.operationRepository.update(request.operationId, { sendTime: now, txId, completionTime: now, blockTime: now, block });
         } else {
-            try {
-                const txId = await this.eosService.pushTransaction(tx);
-                await this.operationRepository.update(request.operationId, { sendTime: now, txId });
-            } catch (error) {
-                if (error.status == 400) {
-                    throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
-                } else {
-                    throw error;
+            if (!operation || !operation.isSent()) {
+                try {
+                    txId = await this.eosService.pushTransaction(tx);
+                } catch (error) {
+                    if (error.status == 400) {
+                        throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
+                    } else {
+                        throw error;
+                    }
                 }
             }
 
-            // TODO: update balances
+            await this.operationRepository.update(request.operationId, { sendTime: now, txId });
+        }
 
-            await this.historyRepository.upsert(action.From, action.To, operation.AssetId, action.Amount, action.AmountInBaseUnit,
-                block, now, tx.txId, action.RowKey, operation.OperationId);
+        for (const action of operationActions) {
+            // record balance changes
+            const balanceChanges = [
+                { address: action.from, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
+                { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
+            ];
+            for (const bc of balanceChanges) {
+                await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit);
+                await this.logService.write(LogLevel.info, TransactionsController.name, this.broadcast.name,
+                    "Balance change recorded", JSON.stringify({ ...bc, assetId: operation.AssetId, txId }));
+            }
+
+            // upsert history of simulated operation actions
+            if (this.isSimulated(action.FromAddress, action.ToAddress)) {
+                await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit,
+                    block, now, txId, action.RowKey, operation.OperationId);
+            }
         }
     }
 
@@ -331,7 +365,7 @@ export class TransactionsController {
                 timestamp: this.getTimestamp(operation),
                 inputs: actions.map(a => ({
                     amount: a.AmountInBaseUnit.toFixed(),
-                    fromAddress: a.From
+                    fromAddress: a.FromAddress
                 })),
                 fee: "0",
                 hash: operation.TxId,
@@ -356,7 +390,7 @@ export class TransactionsController {
                 timestamp: this.getTimestamp(operation),
                 outputs: actions.map(a => ({
                     amount: a.AmountInBaseUnit.toFixed(),
-                    toAddress: a.To
+                    toAddress: a.ToAddress
                 })),
                 fee: "0",
                 hash: operation.TxId,

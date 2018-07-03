@@ -1,106 +1,107 @@
+import { MongoEntity, MongoRepository, MongoQueryResult } from "./mongo";
 import { Settings } from "../common";
-import { AzureEntity, AzureRepository, Ignore, Double, AzureQueryResult, Int64 } from "./queries";
 import { isString } from "util";
-import { TableQuery } from "azure-storage";
 import { Service } from "typedi";
 
-export class AddressEntity extends AzureEntity {
-    @Ignore()
-    get Address(): string {
-        return this.PartitionKey;
-    }
-}
 
-export class BalanceEntity extends AzureEntity {
-
-    @Ignore()
-    get Address(): string {
-        return this.PartitionKey;
-    }
-
-    @Ignore()
-    get AssetId(): string {
-        return this.RowKey;
-    }
-
-    @Double()
+export class BalanceEntity extends MongoEntity<{ Address: string, AssetId: string }> {
     Amount: number;
-
-    @Int64()
     AmountInBaseUnit: number;
 }
 
 @Service()
-export class BalanceRepository extends AzureRepository {
+export class BalanceRepository extends MongoRepository {
 
-    private addressTableName: string = "EosBalanceAddresses";
-    private balanceTableName: string = "EosBalances";
+    private addressCollectionName: string = "EosBalanceAddresses";
+    private balanceCollectionName: string = "EosBalances";
 
-    constructor(private settings: Settings) {
-        super(settings.EosApi.DataConnectionString);
+    constructor(settings: Settings) {
+        super(
+            settings.EosApi.Mongo.ConnectionString,
+            settings.EosApi.Mongo.User,
+            settings.EosApi.Mongo.Password,
+            settings.EosApi.Mongo.Database);
     }
 
     async observe(address: string) {
-        const entity = new AddressEntity();
-        entity.PartitionKey = address;
-        entity.RowKey = "";
+        const db = await this.db();
+        await db.collection(this.addressCollectionName)
+            .replaceOne(
+                { _id: address },
+                { _id: address },
+                { upsert: true }
+            );
 
-        await this.insertOrMerge(this.addressTableName, entity);
+        await db.collection(this.balanceCollectionName)
+            .updateMany(
+                { Address: { $eq: address } },
+                { $set: { IsObservable: true } }
+            );
     }
 
     async isObservable(address: string): Promise<boolean> {
-        return !!(await this.select(AddressEntity, this.addressTableName, address, ""));
+        const db = await this.db();
+        const entity = await db.collection(this.addressCollectionName).findOne({ _id: address });
+
+        return !!entity;
     }
 
-    /**
-     * Creates, updates or removes balance record for address.
-     * @param address Address
-     * @param assetId Asset
-     * @param affix Amount to add (if positive) or subtract (if negative)
-     */
-    async modify(address: string, assetId: string, affix: number, affixInBaseUnit: number): Promise<{ amount: number, amountInBaseUnit: number }> {
-        let entity = await this.select(BalanceEntity, this.balanceTableName, address, assetId);
-        if (entity == null) {
-            entity = new BalanceEntity();
-            entity.PartitionKey = address;
-            entity.RowKey = assetId;
-        }
-
-        entity.Amount += affix;
-        entity.AmountInBaseUnit += affixInBaseUnit;
-
-        if (entity.AmountInBaseUnit != 0) {
-            await this.insertOrMerge(this.balanceTableName, entity);
-        } else {
-            await this.delete(this.balanceTableName, entity.PartitionKey, entity.RowKey);
-        }
-
-        return {
-            amount: entity.Amount,
-            amountInBaseUnit: entity.AmountInBaseUnit
-        };
+    async remove(address: string) {
+        const db = await this.db();
+        await db.collection(this.addressCollectionName).deleteOne({ _id: address });
+        await db.collection(this.balanceCollectionName)
+            .updateMany(
+                { Address: { $eq: address } },
+                { $set: { IsObservable: false } }
+            );
     }
 
-    async remove(address: string, assetId?: string) {
-        if (!!assetId) {
-            await this.delete(this.balanceTableName, address, assetId);
-        } else {
-            await this.delete(this.addressTableName, address, "");
-            await this.deleteAll(BalanceEntity, this.balanceTableName, new TableQuery().where("PartitionKey == ?", address));
-        }
+    async upsert(address: string, assetId: string, operationOrTxId: string, amount: number, amountInBaseUnit: number) {
+        const db = await this.db();
+        const id = `${address}_${assetId}_${operationOrTxId}`;
+        const isObservable = await this.isObservable(address);
+        await db.collection(this.balanceCollectionName)
+            .updateOne(
+                { _id: id },
+                { $set: { _id: id, Address: address, AssetId: assetId, OperationOrTxId: operationOrTxId, Amount: amount, AmountInBaseUnit: amountInBaseUnit, IsObservable: isObservable } },
+                { upsert: true }
+            );
+    }
+
+    async update(address: string, assetId: string, operationOrTxId: string, params: { isCancelled: boolean }) {
+        const db = await this.db();
+        const id = `${address}_${assetId}_${operationOrTxId}`;
+        await db.collection(this.balanceCollectionName)
+            .updateOne(
+                { _id: id },
+                { $set: { IsCancelled: params.isCancelled } },
+                { upsert: true }
+            );
     }
 
     async get(address: string, assetId: string): Promise<BalanceEntity>;
-    async get(take: number, continuation?: string): Promise<AzureQueryResult<BalanceEntity>>;
-    async get(addressOrTake: string | number, assetIdOrcontinuation?: string): Promise<BalanceEntity | AzureQueryResult<BalanceEntity>> {
+    async get(take: number, continuation?: string): Promise<MongoQueryResult<BalanceEntity>>;
+    async get(addressOrTake: string | number, assetIdOrcontinuation?: string): Promise<BalanceEntity | MongoQueryResult<BalanceEntity>> {
+        const db = await this.db();
         if (isString(addressOrTake)) {
-            return await this.select(BalanceEntity, this.balanceTableName, addressOrTake, assetIdOrcontinuation);
+            return await db.collection<BalanceEntity>(this.balanceCollectionName)
+                .aggregate([
+                    { $match: { Address: addressOrTake, AssetId: assetIdOrcontinuation, IsCancelled: { $ne: true } } },
+                    { $group: { _id: { Address: "$Address", AssetId: "$Assetid" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" } } },
+                ])
+                .next();
         } else {
-            return await this.select(BalanceEntity, this.balanceTableName, new TableQuery().top(addressOrTake || 100), assetIdOrcontinuation);
-        }
-    }
+            const skip = parseInt(assetIdOrcontinuation) || 0;
+            const entities = await db.collection<BalanceEntity>(this.balanceCollectionName)
+                .aggregate([
+                    { $match: { IsCancelled: { $ne: true }, IsObservable: { $eq: true } } },
+                    { $group: { _id: { Address: "$Address", AssetId: "$Assetid" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" } } },
+                    { $skip: skip },
+                    { $limit: addressOrTake }
+                ])
+                .toArray();
 
-    async all(): Promise<BalanceEntity[]> {
-        return await this.selectAll(c => this.get(100, c));
+            return new MongoQueryResult(entities, entities.length < addressOrTake ? null : (skip + addressOrTake).toFixed());
+        }
     }
 }

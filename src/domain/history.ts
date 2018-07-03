@@ -1,5 +1,5 @@
 import { Settings } from "../common";
-import { AzureEntity, AzureRepository, Ignore, Int64, Double, AzureQueryResult } from "./queries";
+import { AzureEntity, AzureRepository, Ignore, Int64, Double, AzureQueryResult } from "./azure";
 import { TableQuery } from "azure-storage";
 import { Service } from "typedi";
 
@@ -44,7 +44,7 @@ export class HistoryRepository extends AzureRepository {
     private historyByTxIdTableName: string = "EosHistoryByTxId";
 
     constructor(private settings: Settings) {
-        super(settings.EosApi.DataConnectionString);
+        super(settings.EosApi.Azure.ConnectionString);
     }
 
     async upsert(from: string, to: string, assetId: string, amount: number, amountInBaseUnit: number,

@@ -1,7 +1,5 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError } from "routing-controllers";
 import { AssetEntity, AssetRepository } from "../domain/assets";
-import { IsNotEmpty } from "class-validator";
-import { validateContinuation } from "../domain/queries";
 
 export class AssetModel {
 
@@ -33,7 +31,7 @@ export class AssetsController {
             throw new BadRequestError(`Query parameter "take" is required`);
         }
 
-        if (!!continuation && !validateContinuation(continuation)) {
+        if (!!continuation && !this.assetRepository.validateContinuation(continuation)) {
             throw new BadRequestError(`Query parameter "continuation" is invalid`);
         }
 

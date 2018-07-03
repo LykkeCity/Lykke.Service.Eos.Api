@@ -25,14 +25,6 @@ export function Double() {
     return (target: Object, propertyKey: string | symbol) => Reflect.defineMetadata(azureEdmMetadataKey, doubleEdmMetadataKey, target, propertyKey);
 }
 
-export function validateContinuation(continuation: string) {
-    try {
-        return toAzure(continuation) != null;
-    } catch (e) {
-        return false;
-    }
-}
-
 export function fromAzure<T extends AzureEntity>(entity: any, t: new () => T): T;
 export function fromAzure(continuationToken: TableService.TableContinuationToken): string;
 export function fromAzure<T extends AzureEntity>(entityOrContinuationToken: any | TableService.TableContinuationToken, t?: new () => T): T | string {
@@ -150,7 +142,7 @@ export class AzureRepository {
             });
     }
 
-    deleteAll<T extends AzureEntity>(t: new () => T, tableName: string, query: TableQuery): Promise<void[]> {
+    protected deleteAll<T extends AzureEntity>(t: new () => T, tableName: string, query: TableQuery): Promise<void[]> {
         return this.selectAll(async (c) => await this.select(t, tableName, query, c))
             .then(list => {
                 const batches: Promise<void>[] = [];
@@ -250,5 +242,13 @@ export class AzureRepository {
         } while (!!continuation)
 
         return items;
+    }
+
+    validateContinuation(continuation: string) {
+        try {
+            return toAzure(continuation) != null;
+        } catch (e) {
+            return false;
+        }
     }
 }

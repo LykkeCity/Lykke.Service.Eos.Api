@@ -1,9 +1,9 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError, Post, Delete, HttpCode, OnNull, OnUndefined, Res, Ctx } from "routing-controllers";
 import { BalanceRepository, BalanceEntity } from "../domain/balances";
-import { validateContinuation } from "../domain/queries";
 import { AssetRepository, AssetEntity } from "../domain/assets";
 import { EosService } from "../services/eosService";
 import { ConflictError } from "../errors/conflictError";
+import { BlockchainError } from "../errors/blockchainError";
 
 @JsonController("/balances")
 export class BalancesController {
@@ -20,11 +20,11 @@ export class BalancesController {
         @QueryParam("continuation") continuation?: string) {
 
         if (take <= 0) {
-            throw new BadRequestError(`Query parameter "take" is required`);
+            throw new BlockchainError({ status: 400, message: "Query parameter [take] is required" });
         }
 
-        if (!!continuation && !validateContinuation(continuation)) {
-            throw new BadRequestError(`Query parameter "continuation" is invalid`);
+        if (!!continuation && !this.balanceRepository.validateContinuation(continuation)) {
+            throw new BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
 
         const block = await this.eosService.getLastIrreversibleBlockNumber();
@@ -33,12 +33,41 @@ export class BalancesController {
         return {
             continuation: query.continuation,
             items: query.items.map(e => ({
-                address: e.Address,
-                assetId: e.AssetId,
+                address: e._id.Address,
+                assetId: e._id.AssetId,
                 balance: e.AmountInBaseUnit.toFixed(),
                 block: block
             }))
         };
+    }
+
+    @Get("/:address/:assetId")
+    async balanceOf(
+        @Param("address") address: string,
+        @Param("assetId") assetId: string) {
+
+        if (!this.eosService.validate(address)) {
+            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
+        }
+
+        const asset = await this.assetRepository.get(assetId);
+        if (asset == null) {
+            throw new BlockchainError({ status: 400, message: `Unknown assetId [${assetId}]` });
+        }
+
+        const block = await this.eosService.getLastIrreversibleBlockNumber();
+        const value = await this.balanceRepository.get(address, assetId);
+
+        if (!!value) {
+            return {
+                address: address,
+                assetId: assetId,
+                balance: value.AmountInBaseUnit.toFixed(),
+                block: block
+            };
+        } else {
+            return null;
+        }
     }
 
     @Post("/:address/observation")
@@ -46,7 +75,7 @@ export class BalancesController {
     @OnUndefined(200)
     async observe(@Param("address") address: string) {
         if (await this.balanceRepository.isObservable(address)) {
-            throw new ConflictError("Address is already observed");
+            throw new ConflictError(`Address [${address}] is already observed`);
         } else {
             await this.balanceRepository.observe(address);
         }

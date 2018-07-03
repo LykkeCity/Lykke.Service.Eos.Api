@@ -14,56 +14,92 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const routing_controllers_1 = require("routing-controllers");
 const balances_1 = require("../domain/balances");
-const queries_1 = require("../domain/queries");
 const assets_1 = require("../domain/assets");
 const eosService_1 = require("../services/eosService");
-class BalanceModel {
-    constructor(balance, asset, block) {
-        this.address = balance.Address;
-        this.assetId = balance.AssetId;
-        this.balance = (balance.Balance * (Math.pow(10, asset.Accuracy))).toFixed(0);
-        this.block = block;
-    }
-}
-exports.BalanceModel = BalanceModel;
+const conflictError_1 = require("../errors/conflictError");
+const blockchainError_1 = require("../errors/blockchainError");
 let BalancesController = class BalancesController {
-    constructor(assetRepository, balanceRepository, eos) {
+    constructor(assetRepository, balanceRepository, eosService) {
         this.assetRepository = assetRepository;
         this.balanceRepository = balanceRepository;
-        this.eos = eos;
+        this.eosService = eosService;
     }
     async balances(take, continuation) {
         if (take <= 0) {
-            throw new routing_controllers_1.BadRequestError(`Query parameter "take" is required`);
+            throw new blockchainError_1.BlockchainError({ status: 400, message: "Query parameter [take] is required" });
         }
-        if (!!continuation && !queries_1.validateContinuation(continuation)) {
-            throw new routing_controllers_1.BadRequestError(`Query parameter "continuation" is invalid`);
+        if (!!continuation && !this.balanceRepository.validateContinuation(continuation)) {
+            throw new blockchainError_1.BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
-        const blockNumber = await this.eos.getLastIrreversibleBlockNumber();
-        const result = await this.balanceRepository.get(take, continuation);
-        const assets = await this.assetRepository.all();
+        const block = await this.eosService.getLastIrreversibleBlockNumber();
+        const query = await this.balanceRepository.get(take, continuation);
         return {
-            items: result.items.filter(e => e.Balance > 0).map(e => new BalanceModel(e, assets.find(a => a.AssetId == e.AssetId), blockNumber)),
-            continuation: result.continuation
+            continuation: query.continuation,
+            items: query.items.map(e => ({
+                address: e._id.Address,
+                assetId: e._id.AssetId,
+                balance: e.AmountInBaseUnit.toFixed(),
+                block: block
+            }))
         };
     }
+    async balanceOf(address, assetId) {
+        if (!this.eosService.validate(address)) {
+            throw new blockchainError_1.BlockchainError({ status: 400, message: `Invalid address [${address}]` });
+        }
+        const asset = await this.assetRepository.get(assetId);
+        if (asset == null) {
+            throw new blockchainError_1.BlockchainError({ status: 400, message: `Unknown assetId [${assetId}]` });
+        }
+        const block = await this.eosService.getLastIrreversibleBlockNumber();
+        const value = await this.balanceRepository.get(address, assetId);
+        if (!!value) {
+            return {
+                address: address,
+                assetId: assetId,
+                balance: value.AmountInBaseUnit.toFixed(),
+                block: block
+            };
+        }
+        else {
+            return null;
+        }
+    }
     async observe(address) {
-        // always OK due to controlling observation by node's configuration
+        if (await this.balanceRepository.isObservable(address)) {
+            throw new conflictError_1.ConflictError(`Address [${address}] is already observed`);
+        }
+        else {
+            await this.balanceRepository.observe(address);
+        }
     }
     async deleteObservation(address) {
-        // always OK due to controlling observation by node's configuration
+        if (await this.balanceRepository.isObservable(address)) {
+            await this.balanceRepository.remove(address);
+        }
+        else {
+            return null;
+        }
     }
 };
 __decorate([
     routing_controllers_1.Get(),
-    __param(0, routing_controllers_1.QueryParam("take", { required: true })), __param(1, routing_controllers_1.QueryParam("continuation")),
+    __param(0, routing_controllers_1.QueryParam("take", { required: true })),
+    __param(1, routing_controllers_1.QueryParam("continuation")),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Number, String]),
     __metadata("design:returntype", Promise)
 ], BalancesController.prototype, "balances", null);
 __decorate([
+    routing_controllers_1.Get("/:address/:assetId"),
+    __param(0, routing_controllers_1.Param("address")),
+    __param(1, routing_controllers_1.Param("assetId")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", Promise)
+], BalancesController.prototype, "balanceOf", null);
+__decorate([
     routing_controllers_1.Post("/:address/observation"),
-    routing_controllers_1.HttpCode(200),
     routing_controllers_1.OnNull(200),
     routing_controllers_1.OnUndefined(200),
     __param(0, routing_controllers_1.Param("address")),
@@ -73,8 +109,7 @@ __decorate([
 ], BalancesController.prototype, "observe", null);
 __decorate([
     routing_controllers_1.Delete("/:address/observation"),
-    routing_controllers_1.HttpCode(200),
-    routing_controllers_1.OnNull(200),
+    routing_controllers_1.OnNull(204),
     routing_controllers_1.OnUndefined(200),
     __param(0, routing_controllers_1.Param("address")),
     __metadata("design:type", Function),
@@ -83,7 +118,9 @@ __decorate([
 ], BalancesController.prototype, "deleteObservation", null);
 BalancesController = __decorate([
     routing_controllers_1.JsonController("/balances"),
-    __metadata("design:paramtypes", [assets_1.AssetRepository, balances_1.BalanceRepository, eosService_1.EosService])
+    __metadata("design:paramtypes", [assets_1.AssetRepository,
+        balances_1.BalanceRepository,
+        eosService_1.EosService])
 ], BalancesController);
 exports.BalancesController = BalancesController;
 //# sourceMappingURL=balancesController.js.map

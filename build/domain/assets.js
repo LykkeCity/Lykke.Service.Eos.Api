@@ -11,38 +11,36 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const azure_storage_1 = require("azure-storage");
 const common_1 = require("../common");
-const queries_1 = require("./queries");
+const azure_1 = require("./azure");
 const util_1 = require("util");
 const typedi_1 = require("typedi");
-class AssetEntity extends queries_1.AzureEntity {
+class AssetEntity extends azure_1.AzureEntity {
     /**
      * Token symbol
      */
     get AssetId() {
         return this.PartitionKey;
     }
-    convert(decimalNumberOrIntegerString) {
-        if (util_1.isNumber(decimalNumberOrIntegerString)) {
-            return decimalNumberOrIntegerString * Math.pow(10, this.Accuracy);
-        }
-        else {
-            return parseInt(decimalNumberOrIntegerString) / Math.pow(10, this.Accuracy);
-        }
+    fromBaseUnit(value) {
+        return value / Math.pow(10, this.Accuracy);
+    }
+    toBaseUnit(value) {
+        return value * Math.pow(10, this.Accuracy);
     }
 }
 __decorate([
-    queries_1.Ignore(),
+    azure_1.Ignore(),
     __metadata("design:type", String),
     __metadata("design:paramtypes", [])
 ], AssetEntity.prototype, "AssetId", null);
 __decorate([
-    queries_1.Int32(),
+    azure_1.Int32(),
     __metadata("design:type", Number)
 ], AssetEntity.prototype, "Accuracy", void 0);
 exports.AssetEntity = AssetEntity;
-let AssetRepository = class AssetRepository extends queries_1.AzureRepository {
+let AssetRepository = class AssetRepository extends azure_1.AzureRepository {
     constructor(settings) {
-        super(settings.EosApi.DataConnectionString);
+        super(settings.EosApi.Azure.ConnectionString);
         this.settings = settings;
         this.tableName = "EosAssets";
     }

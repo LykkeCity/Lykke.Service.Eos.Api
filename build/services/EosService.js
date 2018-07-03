@@ -28,6 +28,10 @@ let EosService = class EosService {
     async getTransactionHeaders() {
         return (await util_1.promisify(this.eos.createTransaction)(this.settings.EosApi.Eos.ExpireInSeconds));
     }
+    async getBalance(account, tokenContractAccount, symbol) {
+        const data = await this.eos.getCurrencyBalance({ code: tokenContractAccount, account, symbol });
+        return (data[0] && parseFloat(data[0].split(" ")[0])) || 0;
+    }
     async pushTransaction(tx) {
         return (await this.eos.pushTransaction(tx)).transaction_id;
     }

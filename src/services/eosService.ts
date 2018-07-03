@@ -1,6 +1,8 @@
 import { Service } from "typedi";
 import { promisify } from "util";
 import { Settings, ADDRESS_SEPARATOR } from "../common";
+import { AssetEntity } from "../domain/assets";
+import { BalanceEntity } from "../domain/balances";
 
 // EOSJS has no typings, so use it as regular node module
 const Eos = require("eosjs");
@@ -24,6 +26,11 @@ export class EosService {
 
     async getTransactionHeaders() {
         return (await promisify(this.eos.createTransaction)(this.settings.EosApi.Eos.ExpireInSeconds));
+    }
+
+    async getBalance(account: string, tokenContractAccount: string, symbol: string): Promise<number> {
+        const data = await this.eos.getCurrencyBalance({ code: tokenContractAccount, account, symbol });
+        return (data[0] && parseFloat(data[0].split(" ")[0])) || 0;
     }
 
     async pushTransaction(tx: any): Promise<string> {

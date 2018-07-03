@@ -39,7 +39,15 @@ export function fromBase64<T>(str: string): T {
  */
 export class Settings {
     EosApi: {
-        DataConnectionString: string;
+        Azure: {
+            ConnectionString: string;
+        },
+        Mongo: {
+            ConnectionString: string;
+            User: string;
+            Password: string;
+            Database: string;
+        },
         LogAdapterUrl: string;
         LogSlackChannels: string[];
         Eos: {
