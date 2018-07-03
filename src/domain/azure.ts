@@ -34,7 +34,7 @@ export function fromAzure<T extends AzureEntity>(entityOrContinuationToken: any 
     if (!t) {
         return toBase64(entityOrContinuationToken);
     } else {
-        const result = new t();
+        const result = new t() as any; // cast to "any" type to be able to set properties by name
         for (const key in entityOrContinuationToken) {
             if (entityOrContinuationToken.hasOwnProperty(key)) {
                 if (!!entityOrContinuationToken[key] && entityOrContinuationToken[key].hasOwnProperty("_")) {
@@ -72,7 +72,7 @@ export function toAzure<T extends AzureEntity>(entityOrContinuation: T | string)
         return fromBase64<TableService.TableContinuationToken>(entityOrContinuation);
     } else {
         const entity: any = {
-            ".metadata": entityOrContinuation[".metadata"]
+            ".metadata": (entityOrContinuation as any)[".metadata"] // cast to "any" type to be able to get properties by name
         };
         for (const key in entityOrContinuation) {
             if (key != ".metadata" && !Reflect.getMetadata(azureIgnoreMetadataKey, entityOrContinuation, key)) {
@@ -89,7 +89,6 @@ export function toAzure<T extends AzureEntity>(entityOrContinuation: T | string)
 export class AzureEntity {
     PartitionKey: string;
     RowKey: string;
-    [key: string]: any;
 }
 
 export class AzureQueryResult<T extends AzureEntity> {
@@ -142,7 +141,7 @@ export class AzureRepository {
             });
     }
 
-    protected deleteAll<T extends AzureEntity>(t: new () => T, tableName: string, query: TableQuery): Promise<void[]> {
+    deleteAll<T extends AzureEntity>(t: new () => T, tableName: string, query: TableQuery): Promise<void[]> {
         return this.selectAll(async (c) => await this.select(t, tableName, query, c))
             .then(list => {
                 const batches: Promise<void>[] = [];

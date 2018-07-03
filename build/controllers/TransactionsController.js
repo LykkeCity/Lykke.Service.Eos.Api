@@ -253,14 +253,17 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
     async broadcast(request) {
         const operation = await this.operationRepository.get(request.operationId);
         const operationActions = await this.operationRepository.getActions(request.operationId);
-        const block = await this.eosService.getLastIrreversibleBlockNumber();
         const now = new Date();
+        const block = (!!operation && operation.Block) || await this.eosService.getLastIrreversibleBlockNumber();
+        const blockTime = (!!operation && operation.BlockTime) || now;
+        const completionTime = (!!operation && operation.CompletionTime) || now;
+        const sendTime = (!!operation && operation.SendTime) || now;
         const tx = common_1.fromBase64(request.signedTransaction);
         let txId = tx.txId;
         if (!!txId) {
             // for fully simulated transaction we mark
             // operation as completed immediately
-            await this.operationRepository.update(request.operationId, { sendTime: now, txId, completionTime: now, blockTime: now, block });
+            await this.operationRepository.update(request.operationId, { txId, sendTime, completionTime, blockTime, block });
         }
         else {
             if (!operation || !operation.isSent()) {
@@ -276,12 +279,12 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
                     }
                 }
             }
-            await this.operationRepository.update(request.operationId, { sendTime: now, txId });
+            await this.operationRepository.update(request.operationId, { txId, sendTime });
         }
         for (const action of operationActions) {
             // record balance changes
             const balanceChanges = [
-                { address: action.from, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
+                { address: action.FromAddress, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
                 { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
             ];
             for (const bc of balanceChanges) {
@@ -290,13 +293,13 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
             }
             // upsert history of simulated operation actions
             if (this.isSimulated(action.FromAddress, action.ToAddress)) {
-                await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit, block, now, txId, action.RowKey, operation.OperationId);
+                await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit, block, blockTime, txId, action.RowKey, operation.OperationId);
             }
         }
     }
     async getSingle(operationId) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation) {
+        if (!!operation && operation.isSent()) {
             return {
                 operationId,
                 state: this.getState(operation),
@@ -314,7 +317,7 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
     }
     async getManyInputs(operationId) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isNotBuiltOrDeleted()) {
+        if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,
@@ -336,7 +339,7 @@ let TransactionsController = TransactionsController_1 = class TransactionsContro
     }
     async getManyOutputs(operationId) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation) {
+        if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,
@@ -418,8 +421,6 @@ __decorate([
 ], TransactionsController.prototype, "broadcast", null);
 __decorate([
     routing_controllers_1.Get("/broadcast/single/:operationId"),
-    routing_controllers_1.OnNull(204),
-    routing_controllers_1.OnUndefined(204),
     __param(0, routing_controllers_1.Param("operationId")),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
@@ -427,8 +428,6 @@ __decorate([
 ], TransactionsController.prototype, "getSingle", null);
 __decorate([
     routing_controllers_1.Get("/broadcast/many-inputs/:operationId"),
-    routing_controllers_1.OnNull(204),
-    routing_controllers_1.OnUndefined(204),
     __param(0, routing_controllers_1.Param("operationId")),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
@@ -436,8 +435,6 @@ __decorate([
 ], TransactionsController.prototype, "getManyInputs", null);
 __decorate([
     routing_controllers_1.Get("/broadcast/many-outputs/:operationId"),
-    routing_controllers_1.OnNull(204),
-    routing_controllers_1.OnUndefined(204),
     __param(0, routing_controllers_1.Param("operationId")),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),

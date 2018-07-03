@@ -33,7 +33,7 @@ function fromAzure(entityOrContinuationToken, t) {
         return common_1.toBase64(entityOrContinuationToken);
     }
     else {
-        const result = new t();
+        const result = new t(); // cast to "any" type to be able to set properties by name
         for (const key in entityOrContinuationToken) {
             if (entityOrContinuationToken.hasOwnProperty(key)) {
                 if (!!entityOrContinuationToken[key] && entityOrContinuationToken[key].hasOwnProperty("_")) {
@@ -71,7 +71,7 @@ function toAzure(entityOrContinuation) {
     }
     else {
         const entity = {
-            ".metadata": entityOrContinuation[".metadata"]
+            ".metadata": entityOrContinuation[".metadata"] // cast to "any" type to be able to get properties by name
         };
         for (const key in entityOrContinuation) {
             if (key != ".metadata" && !Reflect.getMetadata(azureIgnoreMetadataKey, entityOrContinuation, key)) {

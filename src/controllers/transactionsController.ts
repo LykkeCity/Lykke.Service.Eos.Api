@@ -286,15 +286,18 @@ export class TransactionsController {
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
         const operation = await this.operationRepository.get(request.operationId);
         const operationActions = await this.operationRepository.getActions(request.operationId);
-        const block = await this.eosService.getLastIrreversibleBlockNumber();
         const now = new Date();
+        const block = (!!operation && operation.Block) || await this.eosService.getLastIrreversibleBlockNumber();
+        const blockTime = (!!operation && operation.BlockTime) || now;
+        const completionTime = (!!operation && operation.CompletionTime) || now;
+        const sendTime = (!!operation && operation.SendTime) || now;
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
         let txId = tx.txId;
 
         if (!!txId) {
             // for fully simulated transaction we mark
             // operation as completed immediately
-            await this.operationRepository.update(request.operationId, { sendTime: now, txId, completionTime: now, blockTime: now, block });
+            await this.operationRepository.update(request.operationId, { txId, sendTime, completionTime, blockTime, block });
         } else {
             if (!operation || !operation.isSent()) {
                 try {
@@ -308,13 +311,13 @@ export class TransactionsController {
                 }
             }
 
-            await this.operationRepository.update(request.operationId, { sendTime: now, txId });
+            await this.operationRepository.update(request.operationId, { txId, sendTime });
         }
 
         for (const action of operationActions) {
             // record balance changes
             const balanceChanges = [
-                { address: action.from, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
+                { address: action.FromAddress, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
                 { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
             ];
             for (const bc of balanceChanges) {
@@ -326,17 +329,15 @@ export class TransactionsController {
             // upsert history of simulated operation actions
             if (this.isSimulated(action.FromAddress, action.ToAddress)) {
                 await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit,
-                    block, now, txId, action.RowKey, operation.OperationId);
+                    block, blockTime, txId, action.RowKey, operation.OperationId);
             }
         }
     }
 
     @Get("/broadcast/single/:operationId")
-    @OnNull(204)
-    @OnUndefined(204)
     async getSingle(@Param("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation) {
+        if (!!operation && operation.isSent()) {
             return {
                 operationId,
                 state: this.getState(operation),
@@ -353,11 +354,9 @@ export class TransactionsController {
     }
 
     @Get("/broadcast/many-inputs/:operationId")
-    @OnNull(204)
-    @OnUndefined(204)
     async getManyInputs(@Param("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isNotBuiltOrDeleted()) {
+        if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,
@@ -378,11 +377,9 @@ export class TransactionsController {
     }
 
     @Get("/broadcast/many-outputs/:operationId")
-    @OnNull(204)
-    @OnUndefined(204)
     async getManyOutputs(@Param("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation) {
+        if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,
