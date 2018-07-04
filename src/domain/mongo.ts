@@ -1,4 +1,4 @@
-import { MongoClient, ObjectID, Db } from "mongodb";
+import { MongoClient, ObjectID, Db, MongoClientOptions } from "mongodb";
 
 export abstract class MongoEntity<ID> {
     _id: ID;
@@ -13,19 +13,20 @@ export abstract class MongoRepository {
 
     protected async db(): Promise<Db> {
         if (this._db == null) {
-            this._db = (await MongoClient.connect(this.connectionString, { auth: { user: this.user, password: this.password }, useNewUrlParser: true }))
-                .db(this.database);
+            const options: MongoClientOptions = {
+                useNewUrlParser: true,
+                auth: !!this.user
+                    ? { user: this.user, password: this.password }
+                    : undefined
+            };
+            this._db = (await MongoClient.connect(this.connectionString, options)).db(this.database);
         }
 
         return this._db;
     }
-
-    validateContinuation(continuation: string) {
-        return !continuation || !Number.isNaN(parseInt(continuation));
-    }
 }
 
 export class MongoQueryResult<T> {
-    constructor(public items: T[], public continuation: string) {
+    constructor(public items: T[], continuation: string) {
     }
 }
