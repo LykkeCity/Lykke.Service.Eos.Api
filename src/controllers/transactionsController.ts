@@ -1,15 +1,14 @@
 import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnNull, OnUndefined, QueryParam, HttpCode } from "routing-controllers";
-import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID, IsJSON } from "class-validator";
+import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
-import { AssetRepository, AssetEntity } from "../domain/assets";
+import { AssetRepository } from "../domain/assets";
 import { OperationRepository, OperationType, OperationEntity } from "../domain/operations";
-import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC } from "../common";
+import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC, isUuid } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
 import { LogService, LogLevel } from "../services/logService";
-import { ConflictError } from "../errors/conflictError";
 import { BlockchainError, ErrorCode } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
-import { BalanceEntity, BalanceRepository } from "../domain/balances";
+import { BalanceRepository } from "../domain/balances";
 
 class BuildSingleRequest {
     @IsString()
@@ -228,8 +227,8 @@ export class TransactionsController {
     }
 
     private async getHistory(category: HistoryAddressCategory, address: string, take: number, afterHash: string) {
-        if (take <= 0) {
-            throw new BadRequestError("Query parameter [take] is required");
+        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
+            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid, must be positive integer" });
         }
 
         if (!this.eosService.validate(address)) {
@@ -284,6 +283,9 @@ export class TransactionsController {
     @OnNull(200)
     @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
+
+        // TODO: check somehow if fully successful broadcats was already performed earlier, and return 409
+
         const operation = await this.operationRepository.get(request.operationId);
         const operationActions = await this.operationRepository.getActions(request.operationId);
         const now = new Date();
@@ -336,6 +338,10 @@ export class TransactionsController {
 
     @Get("/broadcast/single/:operationId")
     async getSingle(@Param("operationId") operationId: string) {
+        if (!isUuid(operationId)) {
+            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
+        }
+
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             return {
@@ -355,6 +361,10 @@ export class TransactionsController {
 
     @Get("/broadcast/many-inputs/:operationId")
     async getManyInputs(@Param("operationId") operationId: string) {
+        if (!isUuid(operationId)) {
+            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
+        }
+
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
@@ -378,6 +388,10 @@ export class TransactionsController {
 
     @Get("/broadcast/many-outputs/:operationId")
     async getManyOutputs(@Param("operationId") operationId: string) {
+        if (!isUuid(operationId)) {
+            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
+        }
+
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);

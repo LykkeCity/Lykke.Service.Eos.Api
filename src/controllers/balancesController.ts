@@ -1,6 +1,6 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError, Post, Delete, HttpCode, OnNull, OnUndefined, Res, Ctx } from "routing-controllers";
 import { BalanceRepository, BalanceEntity } from "../domain/balances";
-import { AssetRepository, AssetEntity } from "../domain/assets";
+import { AssetRepository } from "../domain/assets";
 import { EosService } from "../services/eosService";
 import { ConflictError } from "../errors/conflictError";
 import { BlockchainError } from "../errors/blockchainError";
@@ -19,8 +19,8 @@ export class BalancesController {
         @QueryParam("take", { required: true }) take: number,
         @QueryParam("continuation") continuation?: string) {
 
-        if (take <= 0) {
-            throw new BlockchainError({ status: 400, message: "Query parameter [take] is required" });
+        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
+            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid, must be positive integer" });
         }
 
         if (!!continuation && !this.balanceRepository.validateContinuation(continuation)) {
@@ -74,6 +74,10 @@ export class BalancesController {
     @OnNull(200)
     @OnUndefined(200)
     async observe(@Param("address") address: string) {
+        if (!this.eosService.validate(address)) {
+            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
+        }
+
         if (await this.balanceRepository.isObservable(address)) {
             throw new ConflictError(`Address [${address}] is already observed`);
         } else {
@@ -85,6 +89,10 @@ export class BalancesController {
     @OnNull(204)
     @OnUndefined(200)
     async deleteObservation(@Param("address") address: string): Promise<any> {
+        if (!this.eosService.validate(address)) {
+            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
+        }
+
         if (await this.balanceRepository.isObservable(address)) {
             await this.balanceRepository.remove(address);
         } else {

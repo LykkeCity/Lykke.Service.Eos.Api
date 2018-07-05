@@ -3,6 +3,7 @@ import fs from "fs";
 import util from "util";
 
 const pkg = require("../package.json");
+const uuidRegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const APP_NAME = pkg.name;
 
@@ -74,4 +75,8 @@ export function isoUTC(iso: string): Date {
         : `${iso}Z`;
 
     return new Date(iso);
+}
+
+export function isUuid(str: string): boolean {
+    return uuidRegExp.test(str);
 }

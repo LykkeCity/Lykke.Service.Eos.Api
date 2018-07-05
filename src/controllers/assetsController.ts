@@ -1,20 +1,7 @@
 import { JsonController, Get, Param, QueryParam, BadRequestError } from "routing-controllers";
-import { AssetEntity, AssetRepository } from "../domain/assets";
+import { AssetRepository } from "../domain/assets";
+import { BlockchainError } from "../errors/blockchainError";
 
-export class AssetModel {
-
-    constructor(asset: AssetEntity) {
-        this.assetId = asset.AssetId;
-        this.address = asset.Address;
-        this.name = asset.Name;
-        this.accuracy = asset.Accuracy;
-    }
-
-    assetId: string;
-    address: string;
-    name: string;
-    accuracy: number;
-}
 
 @JsonController("/assets")
 export class AssetsController {
@@ -27,25 +14,39 @@ export class AssetsController {
         @QueryParam("take", { required: true }) take: number,
         @QueryParam("continuation") continuation: string) {
 
-        if (take <= 0) {
-            throw new BadRequestError(`Query parameter "take" is required`);
+        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
+            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid" });
         }
 
         if (!!continuation && !this.assetRepository.validateContinuation(continuation)) {
-            throw new BadRequestError(`Query parameter "continuation" is invalid`);
+            throw new BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
 
         const query = await this.assetRepository.get(take, continuation);
 
         return {
             continuation: query.continuation,
-            items: query.items.map(e => (new AssetModel(e)))
+            items: query.items.map(e => ({
+                assetId: e.AssetId,
+                address: e.Address,
+                name: e.Name,
+                accuracy: e.Accuracy
+            }))
         };
     }
 
     @Get("/:assetId")
     async item(@Param("assetId") assetId: string) {
         const asset = await this.assetRepository.get(assetId);
-        return new AssetModel(asset);
+        if (!!asset) {
+            return {
+                assetId: asset.AssetId,
+                address: asset.Address,
+                name: asset.Name,
+                accuracy: asset.Accuracy
+            }
+        } else {
+            return null;
+        }
     }
 }
