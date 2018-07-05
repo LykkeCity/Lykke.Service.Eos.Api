@@ -17,7 +17,7 @@ export class LogService {
     /**
      * Writes log entry to all configured stores (console by default).
      * 
-     * @param level Log level - `error | warning | info`
+     * @param logLevel Log level - `error | warning | info`
      * @param component Component or class or file name
      * @param process Process or method name
      * @param message Event description
@@ -25,10 +25,10 @@ export class LogService {
      * @param type Type of error if any
      * @param stack Stack trace of error if any
      */
-    async write(level: LogLevel, component: string, process: string, message: string,
+    async write(logLevel: LogLevel, component: string, process: string, message: string,
         context?: string, type?: string, stack?: string) {
 
-        console.log(`${new Date().toISOString()} [${level}] ${component} : ${process} : ${message} : ${stack} : ${context}`);
+        console.log(`${new Date().toISOString()} [${logLevel}] ${component} : ${process} : ${message} : ${stack} : ${context}`);
 
         if (!!this.settings.EosApi &&
             !!this.settings.EosApi.LogAdapterUrl) {
@@ -37,7 +37,7 @@ export class LogService {
                     appName: APP_NAME,
                     appVersion: APP_VERSION,
                     envInfo: ENV_INFO,
-                    level,
+                    logLevel,
                     component,
                     process,
                     context,
