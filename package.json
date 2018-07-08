@@ -1,5 +1,5 @@
 {
-  "name": "lykke.service.eos.api",
+  "name": "Lykke.Service.Eos.Api",
   "version": "1.0.0",
   "description": "Lykke adapter to EOS.IO blockchain, main API",
   "main": "./build/server.js",

@@ -413,7 +413,7 @@ export class TransactionsController {
         }
     }
 
-    @Delete("/boradcast/:operationId")
+    @Delete("/broadcast/:operationId")
     @OnNull(200)
     @OnUndefined(200)
     async deleteBroadcasted(@Param("operationId") operationId: string) {
