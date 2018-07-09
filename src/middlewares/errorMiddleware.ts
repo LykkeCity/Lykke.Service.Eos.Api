@@ -15,7 +15,7 @@ export class ErrorMiddleware implements KoaMiddlewareInterface {
         // To implement blockchain integration contract:
         // 1. Replace 'message' with 'errorMessage' and add 'errorCode' if necessary
         if (ctx.status >= 400 && !!ctx.body) {
-            ctx.body.errorMesage = ctx.body.errorMesage || ctx.body.message || ctx.message;
+            ctx.body.errorMessage = ctx.body.errorMessage || ctx.body.message || ctx.message;
             ctx.body.errorCode = ctx.body.errorCode || ErrorCode.unknown;
             delete ctx.body.message;
         }

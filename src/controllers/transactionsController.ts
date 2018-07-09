@@ -425,6 +425,10 @@ export class TransactionsController {
     @OnNull(200)
     @OnUndefined(200)
     async deleteBroadcasted(@Param("operationId") operationId: string) {
+        if (!isUuid(operationId)) {
+            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
+        }
+
         await this.operationRepository.update(operationId, {
             deleteTime: new Date()
         });
