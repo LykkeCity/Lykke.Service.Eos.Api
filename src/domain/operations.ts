@@ -150,6 +150,15 @@ export class OperationRepository extends AzureRepository {
         operationEntity.Error = operation.error;
 
         await this.insertOrMerge(this.operationTableName, operationEntity);
+
+        if (!!operation.txId) {
+            const operationByTxIdEntity = new OperationByTxIdEntity();
+            operationByTxIdEntity.PartitionKey = operation.txId;
+            operationByTxIdEntity.RowKey = "";
+            operationByTxIdEntity.OperationId = operationId;
+
+            await this.insertOrMerge(this.operationByTxIdTableName, operationEntity);
+        }
     }
 
     async get(operationId: string): Promise<OperationEntity> {

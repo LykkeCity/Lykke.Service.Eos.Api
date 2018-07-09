@@ -27,17 +27,36 @@ export class BalancesController {
             throw new BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
 
-        const block = await this.eosService.getLastIrreversibleBlockNumber();
-        const query = await this.balanceRepository.get(take, continuation);
+        const block = (await this.eosService.getLastIrreversibleBlockNumber()) * 10;
+        let items: any[] = [];
+
+        // CosmosDB doesn't suppport multiple $match-es in public preview version,
+        // so we can't filter out zero balances on server.
+        // Instead we have to set non-zero balances incrementally
+        // to return exactly [take] number of items
+
+        do {
+            const result = await this.balanceRepository.get(take, continuation);
+
+            continuation = result.continuation;
+
+            for (const e of result.items) {
+                if (e.AmountInBaseUnit > 0) {
+                    items.push({
+                        address: e._id.Address,
+                        assetId: e._id.AssetId,
+                        balance: e.AmountInBaseUnit.toFixed(),
+                        block: Math.max(e.Block, block)
+                    });
+                    take--;
+                }
+            }
+
+        } while (take > 0 && !!continuation)
 
         return {
-            continuation: query.continuation,
-            items: query.items.map(e => ({
-                address: e._id.Address,
-                assetId: e._id.AssetId,
-                balance: e.AmountInBaseUnit.toFixed(),
-                block: block
-            }))
+            continuation,
+            items
         };
     }
 

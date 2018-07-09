@@ -9,6 +9,7 @@ import { LogService, LogLevel } from "../services/logService";
 import { BlockchainError, ErrorCode } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
 import { BalanceRepository } from "../domain/balances";
+import { ConflictError } from "../errors/conflictError";
 
 class BuildSingleRequest {
     @IsString()
@@ -280,28 +281,27 @@ export class TransactionsController {
     }
 
     @Post("/broadcast")
-    @OnNull(200)
-    @OnUndefined(200)
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
 
-        // TODO: check somehow if fully successful broadcats was already performed earlier, and return 409
-
         const operation = await this.operationRepository.get(request.operationId);
-        const operationActions = await this.operationRepository.getActions(request.operationId);
+
+        // sendTime is not null only if related data already successfully saved
+        if (!!operation && !!operation.SendTime) {
+            throw new BlockchainError({ status: 409, message: `Operation [${request.operationId}] already broadcasted` });
+        }
+
         const now = new Date();
-        const block = (!!operation && operation.Block) || await this.eosService.getLastIrreversibleBlockNumber();
+        const block = (!!operation && operation.Block) || ((await this.eosService.getLastIrreversibleBlockNumber()) * 10 + 1);
         const blockTime = (!!operation && operation.BlockTime) || now;
         const completionTime = (!!operation && operation.CompletionTime) || now;
-        const sendTime = (!!operation && operation.SendTime) || now;
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
         let txId = tx.txId;
 
         if (!!txId) {
-            // for fully simulated transaction we mark
-            // operation as completed immediately
-            await this.operationRepository.update(request.operationId, { txId, sendTime, completionTime, blockTime, block });
+            // for fully simulated transaction we mark operation as completed immediately
+            await this.operationRepository.update(request.operationId, { txId, completionTime, blockTime, block });
         } else {
-            if (!operation || !operation.isSent()) {
+            if (!operation || !operation.TxId) {
                 try {
                     txId = await this.eosService.pushTransaction(tx);
                 } catch (error) {
@@ -313,8 +313,11 @@ export class TransactionsController {
                 }
             }
 
-            await this.operationRepository.update(request.operationId, { txId, sendTime });
+            // save transaction id
+            await this.operationRepository.update(request.operationId, { txId });
         }
+
+        const operationActions = await this.operationRepository.getActions(request.operationId);
 
         for (const action of operationActions) {
             // record balance changes
@@ -323,7 +326,7 @@ export class TransactionsController {
                 { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
             ];
             for (const bc of balanceChanges) {
-                await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit);
+                await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit, block);
                 await this.logService.write(LogLevel.info, TransactionsController.name, this.broadcast.name,
                     "Balance change recorded", JSON.stringify({ ...bc, assetId: operation.AssetId, txId }));
             }
@@ -334,6 +337,11 @@ export class TransactionsController {
                     block, blockTime, txId, action.RowKey, operation.OperationId);
             }
         }
+
+        // finalize broadcasting
+        await this.operationRepository.update(request.operationId, { sendTime: now });
+
+        return { txId };
     }
 
     @Get("/broadcast/single/:operationId")
