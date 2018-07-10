@@ -45,6 +45,16 @@ export class AssetRepository extends AzureRepository {
         super(settings.EosApi.Azure.ConnectionString);
     }
 
+    async upsert(assetId: string, address: string, name: string, accuracy: number) {
+        const entity = new AssetEntity();
+        entity.PartitionKey = assetId;
+        entity.Address = address;
+        entity.Name = name;
+        entity.Accuracy = accuracy;
+
+        await this.insertOrMerge(this.tableName, entity);
+    }
+
     async get(id: string): Promise<AssetEntity>;
     async get(take: number, continuation?: string): Promise<AzureQueryResult<AssetEntity>>;
     async get(idOrTake: string | number, continuation?: string): Promise<AssetEntity | AzureQueryResult<AssetEntity>> {

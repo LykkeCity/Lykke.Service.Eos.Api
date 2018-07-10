@@ -1,4 +1,4 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnNull, OnUndefined, QueryParam, HttpCode } from "routing-controllers";
+import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnUndefined, QueryParam } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository } from "../domain/assets";
@@ -9,7 +9,6 @@ import { LogService, LogLevel } from "../services/logService";
 import { BlockchainError, ErrorCode } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
 import { BalanceRepository } from "../domain/balances";
-import { ConflictError } from "../errors/conflictError";
 
 class BuildSingleRequest {
     @IsString()
@@ -422,7 +421,6 @@ export class TransactionsController {
     }
 
     @Delete("/broadcast/:operationId")
-    @OnNull(200)
     @OnUndefined(200)
     async deleteBroadcasted(@Param("operationId") operationId: string) {
         if (!isUuid(operationId)) {
@@ -453,32 +451,24 @@ export class TransactionsController {
     }
 
     @Post("/history/from/:address/observation")
-    @HttpCode(200)
-    @OnNull(200)
     @OnUndefined(200)
     async observeFrom(@Param("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Delete("/history/from/:address/observation")
-    @HttpCode(200)
-    @OnNull(200)
     @OnUndefined(200)
     async deleteFromObservation(@Param("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Post("/history/to/:address/observation")
-    @HttpCode(200)
-    @OnNull(200)
     @OnUndefined(200)
     async observeTo(@Param("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Delete("/history/to/:address/observation")
-    @HttpCode(200)
-    @OnNull(200)
     @OnUndefined(200)
     async deleteToObservation(@Param("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration

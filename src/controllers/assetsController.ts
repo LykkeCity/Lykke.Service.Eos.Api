@@ -1,12 +1,32 @@
-import { JsonController, Get, Param, QueryParam, BadRequestError } from "routing-controllers";
+import { JsonController, Get, Param, QueryParam, BadRequestError, Body, Post, OnUndefined } from "routing-controllers";
 import { AssetRepository } from "../domain/assets";
 import { BlockchainError } from "../errors/blockchainError";
+import { IsNotEmpty, IsString, IsNumber, IsPositive } from "../../node_modules/class-validator";
+import { EosService } from "../services/eosService";
 
+class CreateAssetRequest {
+    @IsString()
+    @IsNotEmpty()
+    assetId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    address: string;
+
+    @IsString()
+    @IsNotEmpty()
+    name: string;
+
+    @IsNumber()
+    @IsNotEmpty()
+    @IsPositive()
+    accuracy: number;
+}
 
 @JsonController("/assets")
 export class AssetsController {
 
-    constructor(private assetRepository: AssetRepository) {
+    constructor(private assetRepository: AssetRepository, private eosService: EosService) {
     }
 
     @Get()
@@ -48,5 +68,15 @@ export class AssetsController {
         } else {
             return null;
         }
+    }
+
+    @Post()
+    @OnUndefined(200)
+    async create(@Body({ required: true }) request: CreateAssetRequest) {
+        if (!this.eosService.validate(request.address)) {
+            throw new BadRequestError(`Invalid address [${request.address}]`);
+        }
+
+        await this.assetRepository.upsert(request.assetId, request.address, request.name, request.accuracy);
     }
 }

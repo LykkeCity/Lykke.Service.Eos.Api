@@ -90,7 +90,6 @@ export class BalancesController {
     }
 
     @Post("/:address/observation")
-    @OnNull(200)
     @OnUndefined(200)
     async observe(@Param("address") address: string) {
         if (!this.eosService.validate(address)) {
@@ -105,7 +104,6 @@ export class BalancesController {
     }
 
     @Delete("/:address/observation")
-    @OnNull(204)
     @OnUndefined(200)
     async deleteObservation(@Param("address") address: string): Promise<any> {
         if (!this.eosService.validate(address)) {
