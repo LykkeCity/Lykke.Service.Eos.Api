@@ -299,16 +299,14 @@ export class TransactionsController {
         if (!!txId) {
             // for fully simulated transaction we mark operation as completed immediately
             await this.operationRepository.update(request.operationId, { txId, completionTime, blockTime, block });
-        } else {
-            if (!operation || !operation.TxId) {
-                try {
-                    txId = await this.eosService.pushTransaction(tx);
-                } catch (error) {
-                    if (error.status == 400) {
-                        throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
-                    } else {
-                        throw error;
-                    }
+        } else if (!operation || !operation.TxId) {
+            try {
+                txId = await this.eosService.pushTransaction(tx);
+            } catch (error) {
+                if (error.status == 400) {
+                    throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
+                } else {
+                    throw error;
                 }
             }
 
