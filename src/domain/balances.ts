@@ -88,7 +88,7 @@ export class BalanceRepository extends MongoRepository {
             return await db.collection<BalanceEntity>(this.balanceCollectionName)
                 .aggregate([
                     { $match: { Address: addressOrTake, AssetId: assetIdOrcontinuation, IsCancelled: { $ne: true } } },
-                    { $group: { _id: { Address: "$Address", AssetId: "$Assetid" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" }, Block: { $max: "$Block" } } },
+                    { $group: { _id: { Address: "$Address", AssetId: "$AssetId" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" }, Block: { $max: "$Block" } } },
                 ])
                 .next();
         } else {
@@ -96,7 +96,7 @@ export class BalanceRepository extends MongoRepository {
             const entities = await db.collection<BalanceEntity>(this.balanceCollectionName)
                 .aggregate([
                     { $match: { IsCancelled: { $ne: true }, IsObservable: { $eq: true } } },
-                    { $group: { _id: { Address: "$Address", AssetId: "$Assetid" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" }, Block: { $max: "$Block" } } },
+                    { $group: { _id: { Address: "$Address", AssetId: "$AssetId" }, Amount: { $sum: "$Amount" }, AmountInBaseUnit: { $sum: "$AmountInBaseUnit" }, Block: { $max: "$Block" } } },
                     // { $match: { Amount: { $gt: 0 } } }, // CosmosDB doesn't suppport multiple $match-es in public preview version
                     { $skip: skip },
                     { $limit: addressOrTake }
