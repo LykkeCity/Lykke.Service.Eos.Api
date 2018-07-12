@@ -157,7 +157,7 @@ export class OperationRepository extends AzureRepository {
             operationByTxIdEntity.RowKey = "";
             operationByTxIdEntity.OperationId = operationId;
 
-            await this.insertOrMerge(this.operationByTxIdTableName, operationEntity);
+            await this.insertOrMerge(this.operationByTxIdTableName, operationByTxIdEntity);
         }
     }
 
