@@ -1,13 +1,14 @@
 import { getMetadataArgsStorage, Action, BadRequestError } from "routing-controllers";
 import { ParamType } from "routing-controllers/metadata/types/ParamType";
 import { registerDecorator } from "class-validator";
-import { isString, promisify } from "util";
+import { isString, promisify, isNumber } from "util";
 import axios from "axios";
 import fs from "fs";
 
 const pkg = require("../package.json");
 const uuidRegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const eosAddressRegExp = /^[.12345a-z]{1,12}$/;
+const positiveIntegerRegExp = /^[1-9]\d*$/;
 
 export const APP_NAME = pkg.name;
 
@@ -89,6 +90,14 @@ export function isEosAddress(str: string): boolean {
     return !!str && eosAddressRegExp.test(str.split(ADDRESS_SEPARATOR)[0]);
 }
 
+export function isPositiveInteger(value: number | string): boolean {
+    if (isNumber(value)) {
+        return Number.isInteger(value) && value > 0;
+    } else {
+        return positiveIntegerRegExp.test(value);
+    }
+}
+
 /**
  * Class property validation decorator to check EOS address
  * @param name Paremeter name
@@ -99,7 +108,14 @@ export function IsEosAddress() {
             name: "IsEosAddress",
             target: object.constructor,
             propertyName: propertyName,
-            validator: (val: any) => isString(val) && isEosAddress(val)
+            validator: {
+                defaultMessage() {
+                    return `Property [${propertyName}] is invalid, must be valid EOS address with optional extension.`
+                },
+                validate(val: any) {
+                    return isString(val) && isEosAddress(val);
+                }
+            }
         });
     };
 }
@@ -171,9 +187,8 @@ export function QueryParamIsPositiveInteger(name: string) {
         required: true,
         parse: false,
         transform: action => {
-            const value = parseInt(action.context.query[name]);
-            if (!!value && value > 0) {
-                return value;
+            if (isPositiveInteger(action.context.query[name])) {
+                return parseInt(action.context.query[name]);
             } else {
                 return Promise.reject(new BadRequestError(`Query parameter [${name}] is invalid, must be positive integer.`));
             }
