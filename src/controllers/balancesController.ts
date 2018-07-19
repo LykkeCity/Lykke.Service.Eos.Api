@@ -1,9 +1,10 @@
-import { JsonController, Get, Param, QueryParam, BadRequestError, Post, Delete, HttpCode, OnNull, OnUndefined, Res, Ctx } from "routing-controllers";
-import { BalanceRepository, BalanceEntity } from "../domain/balances";
+import { JsonController, Get, Param, QueryParam, Post, Delete, OnUndefined } from "routing-controllers";
+import { BalanceRepository } from "../domain/balances";
 import { AssetRepository } from "../domain/assets";
 import { EosService } from "../services/eosService";
 import { ConflictError } from "../errors/conflictError";
 import { BlockchainError } from "../errors/blockchainError";
+import { QueryParamIsPositiveInteger, ParamIsEosAddress } from "../common";
 
 @JsonController("/balances")
 export class BalancesController {
@@ -16,14 +17,10 @@ export class BalancesController {
 
     @Get()
     async balances(
-        @QueryParam("take", { required: true }) take: number,
+        @QueryParamIsPositiveInteger("take") take: number,
         @QueryParam("continuation") continuation?: string) {
 
-        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
-            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid, must be positive integer" });
-        }
-
-        if (!!continuation && !this.balanceRepository.validateContinuation(continuation)) {
+        if (!this.balanceRepository.validateContinuation(continuation)) {
             throw new BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
 
@@ -62,12 +59,8 @@ export class BalancesController {
 
     @Get("/:address/:assetId")
     async balanceOf(
-        @Param("address") address: string,
+        @ParamIsEosAddress("address") address: string,
         @Param("assetId") assetId: string) {
-
-        if (!this.eosService.validate(address)) {
-            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
-        }
 
         const asset = await this.assetRepository.get(assetId);
         if (asset == null) {
@@ -91,11 +84,7 @@ export class BalancesController {
 
     @Post("/:address/observation")
     @OnUndefined(200)
-    async observe(@Param("address") address: string) {
-        if (!this.eosService.validate(address)) {
-            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
-        }
-
+    async observe(@ParamIsEosAddress("address") address: string) {
         if (await this.balanceRepository.isObservable(address)) {
             throw new ConflictError(`Address [${address}] is already observed`);
         } else {
@@ -105,11 +94,7 @@ export class BalancesController {
 
     @Delete("/:address/observation")
     @OnUndefined(200)
-    async deleteObservation(@Param("address") address: string): Promise<any> {
-        if (!this.eosService.validate(address)) {
-            throw new BlockchainError({ status: 400, message: `Invalid address [${address}]` });
-        }
-
+    async deleteObservation(@ParamIsEosAddress("address") address: string): Promise<any> {
         if (await this.balanceRepository.isObservable(address)) {
             await this.balanceRepository.remove(address);
         } else {

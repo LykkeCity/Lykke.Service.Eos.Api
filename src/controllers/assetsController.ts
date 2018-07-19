@@ -1,8 +1,9 @@
-import { JsonController, Get, Param, QueryParam, BadRequestError, Body, Post, OnUndefined } from "routing-controllers";
+import { JsonController, Get, Param, QueryParam, Body, Post, OnUndefined } from "routing-controllers";
 import { AssetRepository } from "../domain/assets";
 import { BlockchainError } from "../errors/blockchainError";
 import { IsNotEmpty, IsString, IsNumber, IsPositive } from "../../node_modules/class-validator";
 import { EosService } from "../services/eosService";
+import { QueryParamIsPositiveInteger, IsEosAddress } from "../common";
 
 class CreateAssetRequest {
     @IsString()
@@ -11,6 +12,7 @@ class CreateAssetRequest {
 
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     address: string;
 
     @IsString()
@@ -31,14 +33,10 @@ export class AssetsController {
 
     @Get()
     async list(
-        @QueryParam("take", { required: true }) take: number,
+        @QueryParamIsPositiveInteger("take") take: number,
         @QueryParam("continuation") continuation: string) {
 
-        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
-            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid" });
-        }
-
-        if (!!continuation && !this.assetRepository.validateContinuation(continuation)) {
+        if (!this.assetRepository.validateContinuation(continuation)) {
             throw new BlockchainError({ status: 400, message: "Query parameter [continuation] is invalid" });
         }
 
@@ -73,10 +71,6 @@ export class AssetsController {
     @Post()
     @OnUndefined(200)
     async create(@Body({ required: true }) request: CreateAssetRequest) {
-        if (!this.eosService.validate(request.address)) {
-            throw new BadRequestError(`Invalid address [${request.address}]`);
-        }
-
         await this.assetRepository.upsert(request.assetId, request.address, request.name, request.accuracy);
     }
 }

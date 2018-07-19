@@ -3,7 +3,7 @@ import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator
 import { EosService } from "../services/eosService";
 import { AssetRepository } from "../domain/assets";
 import { OperationRepository, OperationType, OperationEntity } from "../domain/operations";
-import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC, isUuid } from "../common";
+import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC, ParamIsUuid, QueryParamIsPositiveInteger, IsEosAddress, ParamIsEosAddress } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
 import { LogService, LogLevel } from "../services/logService";
 import { BlockchainError, ErrorCode } from "../errors/blockchainError";
@@ -18,12 +18,14 @@ class BuildSingleRequest {
 
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     fromAddress: string;
 
     fromAddressContext?: string;
 
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     toAddress: string;
 
     @IsString()
@@ -40,6 +42,7 @@ class BuildSingleRequest {
 class Input {
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     fromAddress: string;
 
     fromAddressContext?: string;
@@ -61,6 +64,7 @@ class BuildManyInputsRequest {
 
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     toAddress: string;
 
     @IsString()
@@ -71,6 +75,7 @@ class BuildManyInputsRequest {
 class Output {
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     toAddress: string;
 
     @IsString()
@@ -86,6 +91,7 @@ class BuildManyOutputsRequest {
 
     @IsString()
     @IsNotEmpty()
+    @IsEosAddress()
     fromAddress: string;
 
     fromAddressContext?: string;
@@ -149,7 +155,6 @@ export class TransactionsController {
         return operation.FailTime || operation.CompletionTime || operation.SendTime;
     }
 
-
     private async build(type: OperationType, operationId: string, assetId: string, inOut: { fromAddress: string, toAddress: string, amount: string }[]) {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
@@ -165,15 +170,6 @@ export class TransactionsController {
         const txActions = [];
 
         for (const action of inOut) {
-
-            if (!this.eosService.validate(action.fromAddress)) {
-                throw new BlockchainError({ status: 400, message: `Invalid address [${action.fromAddress}]` });
-            }
-
-            if (!this.eosService.validate(action.toAddress)) {
-                throw new BlockchainError({ status: 400, message: `Invalid address [${action.toAddress}]` });
-            }
-
             const amountInBaseUnit = parseInt(action.amount);
 
             if (Number.isNaN(amountInBaseUnit) || amountInBaseUnit <= 0) {
@@ -227,14 +223,6 @@ export class TransactionsController {
     }
 
     private async getHistory(category: HistoryAddressCategory, address: string, take: number, afterHash: string) {
-        if (Number.isNaN(take) || !Number.isInteger(take) || take <= 0) {
-            throw new BlockchainError({ status: 400, message: "Query parameter [take] is invalid, must be positive integer" });
-        }
-
-        if (!this.eosService.validate(address)) {
-            throw new BadRequestError(`Invalid address [${address}]`);
-        }
-
         const history = await this.historyRepository.get(category, address, take, afterHash);
 
         return history.map(e => ({
@@ -342,11 +330,7 @@ export class TransactionsController {
     }
 
     @Get("/broadcast/single/:operationId")
-    async getSingle(@Param("operationId") operationId: string) {
-        if (!isUuid(operationId)) {
-            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
-        }
-
+    async getSingle(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             return {
@@ -365,11 +349,7 @@ export class TransactionsController {
     }
 
     @Get("/broadcast/many-inputs/:operationId")
-    async getManyInputs(@Param("operationId") operationId: string) {
-        if (!isUuid(operationId)) {
-            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
-        }
-
+    async getManyInputs(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
@@ -392,11 +372,7 @@ export class TransactionsController {
     }
 
     @Get("/broadcast/many-outputs/:operationId")
-    async getManyOutputs(@Param("operationId") operationId: string) {
-        if (!isUuid(operationId)) {
-            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
-        }
-
+    async getManyOutputs(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
         if (!!operation && operation.isSent()) {
             const actions = await this.operationRepository.getActions(operationId);
@@ -420,11 +396,7 @@ export class TransactionsController {
 
     @Delete("/broadcast/:operationId")
     @OnUndefined(200)
-    async deleteBroadcasted(@Param("operationId") operationId: string) {
-        if (!isUuid(operationId)) {
-            throw new BlockchainError({ status: 400, message: `Invalid operationId [${operationId}], must be UUID` });
-        }
-
+    async deleteBroadcasted(@ParamIsUuid("operationId") operationId: string) {
         await this.operationRepository.update(operationId, {
             deleteTime: new Date()
         });
@@ -432,8 +404,8 @@ export class TransactionsController {
 
     @Get("/history/from/:address")
     async getHistoryFrom(
-        @Param("address") address: string,
-        @QueryParam("take", { required: true }) take: number,
+        @ParamIsEosAddress("address") address: string,
+        @QueryParamIsPositiveInteger("take") take: number,
         @QueryParam("afterHash") afterHash: string) {
 
         return await this.getHistory(HistoryAddressCategory.From, address, take, afterHash);
@@ -441,8 +413,8 @@ export class TransactionsController {
 
     @Get("/history/to/:address")
     async getHistoryTo(
-        @Param("address") address: string,
-        @QueryParam("take", { required: true }) take: number,
+        @ParamIsEosAddress("address") address: string,
+        @QueryParamIsPositiveInteger("take") take: number,
         @QueryParam("afterHash") afterHash: string) {
 
         return await this.getHistory(HistoryAddressCategory.To, address, take, afterHash);
@@ -450,25 +422,25 @@ export class TransactionsController {
 
     @Post("/history/from/:address/observation")
     @OnUndefined(200)
-    async observeFrom(@Param("address") address: string) {
+    async observeFrom(@ParamIsEosAddress("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Delete("/history/from/:address/observation")
     @OnUndefined(200)
-    async deleteFromObservation(@Param("address") address: string) {
+    async deleteFromObservation(@ParamIsEosAddress("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Post("/history/to/:address/observation")
     @OnUndefined(200)
-    async observeTo(@Param("address") address: string) {
+    async observeTo(@ParamIsEosAddress("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 
     @Delete("/history/to/:address/observation")
     @OnUndefined(200)
-    async deleteToObservation(@Param("address") address: string) {
+    async deleteToObservation(@ParamIsEosAddress("address") address: string) {
         // always OK due to controlling transaction tracking by node's configuration
     }
 }
