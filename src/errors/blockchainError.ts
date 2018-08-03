@@ -1,10 +1,5 @@
 import { HttpError } from "routing-controllers";
-
-export enum ErrorCode {
-    unknown = "unknown",
-    amountIsTooSmall = "amountIsTooSmall",
-    notEnoughBalance = "notEnoughBalance"
-}
+import { ErrorCode } from "../domain/operations";
 
 export class BlockchainError extends HttpError {
 

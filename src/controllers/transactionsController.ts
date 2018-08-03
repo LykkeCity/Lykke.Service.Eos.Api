@@ -1,12 +1,12 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete, BadRequestError, OnUndefined, QueryParam } from "routing-controllers";
+import { JsonController, Param, Body, Get, Post, Put, Delete, OnUndefined, QueryParam } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository } from "../domain/assets";
-import { OperationRepository, OperationType, OperationEntity } from "../domain/operations";
+import { OperationRepository, OperationType, OperationEntity, ErrorCode } from "../domain/operations";
 import { toBase64, fromBase64, ADDRESS_SEPARATOR, isoUTC, ParamIsUuid, QueryParamIsPositiveInteger, IsEosAddress, ParamIsEosAddress } from "../common";
 import { NotImplementedError } from "../errors/notImplementedError";
 import { LogService, LogLevel } from "../services/logService";
-import { BlockchainError, ErrorCode } from "../errors/blockchainError";
+import { BlockchainError } from "../errors/blockchainError";
 import { HistoryRepository, HistoryAddressCategory } from "../domain/history";
 import { BalanceRepository } from "../domain/balances";
 
@@ -292,7 +292,18 @@ export class TransactionsController {
                 txId = await this.eosService.pushTransaction(tx);
             } catch (error) {
                 if (error.status == 400) {
-                    throw new BlockchainError({ status: error.status, message: `Transaction rejected`, data: JSON.parse(error.message) });
+                    let data: any = error.message;
+                    try {
+                        data = JSON.parse(error.message);
+                    } catch {}
+                    throw new BlockchainError({ 
+                        status: 400,
+                        message: `Transaction rejected`,
+                        errorCode: !!data && !!data.error && data.error.code == 3040005 
+                            ? ErrorCode.buildingShouldBeRepeated // tx expired
+                            : ErrorCode.unknown,
+                        data 
+                    });
                 } else {
                     throw error;
                 }
@@ -341,7 +352,8 @@ export class TransactionsController {
                 fee: "0",
                 hash: operation.TxId,
                 block: operation.Block,
-                error: operation.Error
+                error: operation.Error,
+                errorCode: operation.ErrorCode
             };
         } else {
             return null;
@@ -364,7 +376,8 @@ export class TransactionsController {
                 fee: "0",
                 hash: operation.TxId,
                 block: operation.Block,
-                error: operation.Error
+                error: operation.Error,
+                errorCode: operation.ErrorCode
             };
         } else {
             return null;
@@ -387,7 +400,8 @@ export class TransactionsController {
                 fee: "0",
                 hash: operation.TxId,
                 block: operation.Block,
-                error: operation.Error
+                error: operation.Error,
+                errorCode: operation.ErrorCode
             };
         } else {
             return null;
