@@ -193,7 +193,7 @@ export class TransactionsController {
                 const from = this.getAccount(action.fromAddress);
                 const to = this.getAccount(action.toAddress);
                 const quantity = `${amount.toFixed(asset.Accuracy)} ${asset.AssetId}`;
-                const memo = action.toAddress.split(ADDRESS_SEPARATOR)[1] || "";
+                const memo = action.toAddress.split(ADDRESS_SEPARATOR)[1] || operationId;
                 const balanceAmount = await this.eosService.getBalance(from, asset.Address, asset.AssetId);
                 balanceInBaseUnit = asset.toBaseUnit(balanceAmount);
                 txActions.push({
