@@ -291,19 +291,20 @@ export class TransactionsController {
             try {
                 txId = await this.eosService.pushTransaction(tx);
             } catch (error) {
-                if (error.status == 400) {
+                if (error.status >= 400) {
                     let data: any = error.message;
                     try {
                         data = JSON.parse(error.message);
-                    } catch {}
-                    throw new BlockchainError({ 
-                        status: 400,
-                        message: `Transaction rejected`,
-                        errorCode: !!data && !!data.error && data.error.code == 3040005 
-                            ? ErrorCode.buildingShouldBeRepeated // tx expired
-                            : ErrorCode.unknown,
-                        data 
-                    });
+                    } catch { 
+                    }
+                    const message = "Transaction rejected";
+                    const errorCode = !!data && !!data.error && data.error.code == 3040005
+                        ? ErrorCode.buildingShouldBeRepeated // tx expired
+                        : ErrorCode.unknown;
+                    const status = errorCode == ErrorCode.unknown
+                        ? error.status
+                        : 400;
+                    throw new BlockchainError({ status, message, errorCode, data });
                 } else {
                     throw error;
                 }
