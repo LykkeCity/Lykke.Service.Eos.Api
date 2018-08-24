@@ -1,6 +1,6 @@
 import { Middleware, KoaMiddlewareInterface, } from "routing-controllers";
 import { Context } from "koa";
-import { ErrorCode } from "../errors/blockchainError";
+import { ErrorCode } from "../domain/operations";
 
 @Middleware({ type: 'before' })
 export class ErrorMiddleware implements KoaMiddlewareInterface {

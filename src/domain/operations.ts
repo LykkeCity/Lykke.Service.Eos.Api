@@ -9,6 +9,13 @@ export enum OperationType {
     ManyOutputs = "ManyOutputs",
 }
 
+export enum ErrorCode {
+    unknown = "unknown",
+    amountIsTooSmall = "amountIsTooSmall",
+    notEnoughBalance = "notEnoughBalance",
+    buildingShouldBeRepeated = "buildingShouldBeRepeated"
+}
+
 export class OperationEntity extends AzureEntity {
     @Ignore()
     get OperationId(): string {
@@ -36,6 +43,7 @@ export class OperationEntity extends AzureEntity {
 
     FailTime: Date;
     Error: string;
+    ErrorCode: ErrorCode;
     DeleteTime: Date;
 
     isCompleted(): boolean {
@@ -136,7 +144,8 @@ export class OperationRepository extends AzureRepository {
     }
 
     async update(operationId: string,
-        operation: { sendTime?: Date, completionTime?: Date, failTime?: Date, deleteTime?: Date, txId?: string, blockTime?: Date, block?: number, error?: string }) {
+        operation: { sendTime?: Date, completionTime?: Date, failTime?: Date, deleteTime?: Date, txId?: string, blockTime?: Date, block?: number,
+        error?: string, errorCode?: ErrorCode }) {
         const operationEntity = new OperationEntity();
         operationEntity.PartitionKey = operationId;
         operationEntity.RowKey = "";
@@ -148,6 +157,7 @@ export class OperationRepository extends AzureRepository {
         operationEntity.BlockTime = operation.blockTime;
         operationEntity.Block = operation.block;
         operationEntity.Error = operation.error;
+        operationEntity.ErrorCode = operation.errorCode;
 
         await this.insertOrMerge(this.operationTableName, operationEntity);
 
