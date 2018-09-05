@@ -9,6 +9,7 @@ const pkg = require("../package.json");
 const uuidRegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const eosAddressRegExp = /^[.12345a-z]{1,12}$/;
 const positiveIntegerRegExp = /^[1-9]\d*$/;
+const azureKeyInvalidCharsRegExp = /[\/\\#?\n\r\t\u0000-\u001F\u007F-\u009F]/gmi;
 
 export const APP_NAME = pkg.name;
 
@@ -87,7 +88,7 @@ export function isUuid(str: string): boolean {
 }
 
 export function isEosAddress(str: string): boolean {
-    return !!str && eosAddressRegExp.test(str.split(ADDRESS_SEPARATOR)[0]);
+    return !!str && eosAddressRegExp.test(str.split(ADDRESS_SEPARATOR)[0]) && !azureKeyInvalidCharsRegExp.test(str);
 }
 
 export function isPositiveInteger(value: number | string): boolean {
