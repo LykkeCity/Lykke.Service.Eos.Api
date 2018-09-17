@@ -88,7 +88,18 @@ export function isUuid(str: string): boolean {
 }
 
 export function isEosAddress(str: string): boolean {
-    return !!str && eosAddressRegExp.test(str.split(ADDRESS_SEPARATOR)[0]) && !azureKeyInvalidCharsRegExp.test(str);
+    if (!str ||
+        !azureKeyInvalidCharsRegExp.test(str)) {
+        return false;
+    }
+
+    const parts = str.split(ADDRESS_SEPARATOR);
+
+    if (!eosAddressRegExp.test(parts[0]) || (!!parts[1] && parts[1].length > 256)) {
+        return false;
+    }
+
+    return true;
 }
 
 export function isPositiveInteger(value: number | string): boolean {
@@ -111,7 +122,7 @@ export function IsEosAddress() {
             propertyName: propertyName,
             validator: {
                 defaultMessage() {
-                    return `Property [${propertyName}] is invalid, must be valid EOS address with optional extension.`
+                    return `Property [${propertyName}] is invalid, must be valid EOS address with optional extension with a maximum length of 256 characters.`
                 },
                 validate(val: any) {
                     return isString(val) && isEosAddress(val);
