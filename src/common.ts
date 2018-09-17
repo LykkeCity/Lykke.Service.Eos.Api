@@ -88,8 +88,7 @@ export function isUuid(str: string): boolean {
 }
 
 export function isEosAddress(str: string): boolean {
-    if (!str ||
-        !azureKeyInvalidCharsRegExp.test(str)) {
+    if (!str || azureKeyInvalidCharsRegExp.test(str)) {
         return false;
     }
 
