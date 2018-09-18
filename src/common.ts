@@ -60,7 +60,8 @@ export class Settings {
         Eos: {
             ExpireInSeconds: number;
             HttpEndpoint: string;
-        }
+        },
+        DisableManyInputsOutputs: boolean;
     };
 }
 
