@@ -271,23 +271,54 @@ export class TransactionsController {
     async broadcast(@Body({ required: true }) request: BroadcastRequest) {
 
         const operation = await this.operationRepository.get(request.operationId);
-
-        // sendTime is not null only if related data already successfully saved
-        if (!!operation && !!operation.SendTime) {
+        if (!operation) {
+            // transaction must be built before
+            throw new BlockchainError({ status: 400, message: `Unknown operation [${request.operationId}]` });
+        } else if (!!operation.SendTime) {
+            // sendTime is not null only if all related data already successfully saved
             throw new BlockchainError({ status: 409, message: `Operation [${request.operationId}] already broadcasted` });
         }
 
-        const now = new Date();
-        const block = (!!operation && operation.Block) || ((await this.eosService.getLastIrreversibleBlockNumber()) * 10 + 1);
-        const blockTime = (!!operation && operation.BlockTime) || now;
-        const completionTime = (!!operation && operation.CompletionTime) || now;
+        const sendTime = new Date();
+        const block = operation.Block || ((await this.eosService.getLastIrreversibleBlockNumber()) * 10 + 1);
+        const blockTime = operation.BlockTime || sendTime;
+        const completionTime = operation.CompletionTime || sendTime;
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
         let txId = tx.txId;
 
         if (!!txId) {
-            // for fully simulated transaction we mark operation as completed immediately
-            await this.operationRepository.update(request.operationId, { txId, completionTime, blockTime, block });
-        } else if (!operation || !operation.TxId) {
+
+            // for fully simulated transaction we immediately update
+            // balances and history, and mark operation as completed
+
+            const operationActions = await this.operationRepository.getActions(operation.OperationId);
+
+            for (const action of operationActions) {
+                // record balance changes
+                const balanceChanges = [
+                    { address: action.FromAddress, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
+                    { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
+                ];
+                for (const bc of balanceChanges) {
+                    await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit, block);
+                    await this.logService.write(LogLevel.info, TransactionsController.name, this.broadcast.name,
+                        "Balance change recorded", JSON.stringify({ ...bc, assetId: operation.AssetId, txId }));
+                }
+
+                // upsert history of simulated operation action
+                await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit,
+                    block, blockTime, txId, action.RowKey, operation.OperationId);
+            }
+
+            // save send time and transaction id and mark operation as completed
+            await this.operationRepository.update(operation.OperationId, { sendTime, txId, completionTime, blockTime, block });
+
+        } else {
+
+            // send [partially] real transaction to the blockchain,
+            // balances will be handled by job, when transaction will be
+            // included in block and when it becomes irreversible
+
             try {
                 txId = await this.eosService.pushTransaction(tx);
             } catch (error) {
@@ -295,11 +326,11 @@ export class TransactionsController {
                     let data: any = error.message;
                     try {
                         data = JSON.parse(error.message);
-                    } catch { 
+                    } catch {
                     }
                     const message = "Transaction rejected";
-                    const errorCode = !!data && !!data.error && data.error.code == 3040005
-                        ? ErrorCode.buildingShouldBeRepeated // tx expired
+                    const errorCode = !!data && !!data.error && (data.error.code == 3040005 || data.error.code == 3040008)
+                        ? ErrorCode.buildingShouldBeRepeated // tx expired or duplicated
                         : ErrorCode.unknown;
                     const status = errorCode == ErrorCode.unknown
                         ? error.status
@@ -310,33 +341,9 @@ export class TransactionsController {
                 }
             }
 
-            // save transaction id
-            await this.operationRepository.update(request.operationId, { txId });
+            // save send time and transaction id
+            await this.operationRepository.update(operation.OperationId, { sendTime, txId });
         }
-
-        const operationActions = await this.operationRepository.getActions(request.operationId);
-
-        for (const action of operationActions) {
-            // record balance changes
-            const balanceChanges = [
-                { address: action.FromAddress, affix: -action.Amount, affixInBaseUnit: -action.AmountInBaseUnit },
-                { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
-            ];
-            for (const bc of balanceChanges) {
-                await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit, block);
-                await this.logService.write(LogLevel.info, TransactionsController.name, this.broadcast.name,
-                    "Balance change recorded", JSON.stringify({ ...bc, assetId: operation.AssetId, txId }));
-            }
-
-            // upsert history of simulated operation actions
-            if (this.isSimulated(action.FromAddress, action.ToAddress)) {
-                await this.historyRepository.upsert(action.FromAddress, action.ToAddress, operation.AssetId, action.Amount, action.AmountInBaseUnit,
-                    block, blockTime, txId, action.RowKey, operation.OperationId);
-            }
-        }
-
-        // finalize broadcasting
-        await this.operationRepository.update(request.operationId, { sendTime: now });
 
         return { txId };
     }

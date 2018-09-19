@@ -9,6 +9,7 @@ const pkg = require("../package.json");
 const uuidRegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const eosAddressRegExp = /^[.12345a-z]{1,12}$/;
 const positiveIntegerRegExp = /^[1-9]\d*$/;
+const azureKeyInvalidCharsRegExp = /[\/\\#?\n\r\t\u0000-\u001F\u007F-\u009F]/gmi;
 
 export const APP_NAME = pkg.name;
 
@@ -59,7 +60,8 @@ export class Settings {
         Eos: {
             ExpireInSeconds: number;
             HttpEndpoint: string;
-        }
+        },
+        DisableManyInputsOutputs: boolean;
     };
 }
 
@@ -87,7 +89,17 @@ export function isUuid(str: string): boolean {
 }
 
 export function isEosAddress(str: string): boolean {
-    return !!str && eosAddressRegExp.test(str.split(ADDRESS_SEPARATOR)[0]);
+    if (!str || azureKeyInvalidCharsRegExp.test(str)) {
+        return false;
+    }
+
+    const parts = str.split(ADDRESS_SEPARATOR);
+
+    if (!eosAddressRegExp.test(parts[0]) || (!!parts[1] && parts[1].length > 256)) {
+        return false;
+    }
+
+    return true;
 }
 
 export function isPositiveInteger(value: number | string): boolean {
@@ -110,7 +122,7 @@ export function IsEosAddress() {
             propertyName: propertyName,
             validator: {
                 defaultMessage() {
-                    return `Property [${propertyName}] is invalid, must be valid EOS address with optional extension.`
+                    return `Property [${propertyName}] is invalid, must be valid EOS address with optional extension with a maximum length of 256 characters.`
                 },
                 validate(val: any) {
                     return isString(val) && isEosAddress(val);

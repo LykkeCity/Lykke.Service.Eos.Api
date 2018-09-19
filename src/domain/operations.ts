@@ -143,9 +143,21 @@ export class OperationRepository extends AzureRepository {
         await this.insertOrMerge(this.operationByExpiryTimeTableName, operationByExpiryTimeEntity);
     }
 
-    async update(operationId: string,
-        operation: { sendTime?: Date, completionTime?: Date, failTime?: Date, deleteTime?: Date, txId?: string, blockTime?: Date, block?: number,
-        error?: string, errorCode?: ErrorCode }) {
+    async update(
+        operationId: string,
+        operation: { sendTime?: Date, completionTime?: Date, failTime?: Date, deleteTime?: Date, txId?: string, blockTime?: Date, block?: number, error?: string, errorCode?: ErrorCode }) {
+        
+        // update transaction index
+        if (!!operation.txId) {
+            const operationByTxIdEntity = new OperationByTxIdEntity();
+            operationByTxIdEntity.PartitionKey = operation.txId;
+            operationByTxIdEntity.RowKey = "";
+            operationByTxIdEntity.OperationId = operationId;
+
+            await this.insertOrMerge(this.operationByTxIdTableName, operationByTxIdEntity);
+        }
+
+        // update transaction
         const operationEntity = new OperationEntity();
         operationEntity.PartitionKey = operationId;
         operationEntity.RowKey = "";
@@ -160,15 +172,6 @@ export class OperationRepository extends AzureRepository {
         operationEntity.ErrorCode = operation.errorCode;
 
         await this.insertOrMerge(this.operationTableName, operationEntity);
-
-        if (!!operation.txId) {
-            const operationByTxIdEntity = new OperationByTxIdEntity();
-            operationByTxIdEntity.PartitionKey = operation.txId;
-            operationByTxIdEntity.RowKey = "";
-            operationByTxIdEntity.OperationId = operationId;
-
-            await this.insertOrMerge(this.operationByTxIdTableName, operationByTxIdEntity);
-        }
     }
 
     async get(operationId: string): Promise<OperationEntity> {
