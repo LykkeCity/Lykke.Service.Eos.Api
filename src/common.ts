@@ -1,9 +1,11 @@
 import { getMetadataArgsStorage, Action, BadRequestError } from "routing-controllers";
 import { ParamType } from "routing-controllers/metadata/types/ParamType";
+import { Container } from "typedi";
 import { registerDecorator } from "class-validator";
 import { isString, promisify, isNumber } from "util";
 import axios from "axios";
 import fs from "fs";
+import * as appInsights from "applicationinsights";
 
 const pkg = require("../package.json");
 const uuidRegExp = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -206,4 +208,26 @@ export function QueryParamIsPositiveInteger(name: string) {
             }
         }
     });
+}
+
+export function startAppInsights() {
+    if (!process.env["APPINSIGHTS_INSTRUMENTATIONKEY"]) {
+        console.warn("APPINSIGHTS_INSTRUMENTATIONKEY is not provided");     
+        return;
+    }
+    
+    // init with default configuration
+    appInsights.setup()
+        .setAutoDependencyCorrelation(true)
+        .setAutoCollectRequests(true)
+        .setAutoCollectPerformance(true)
+        .setAutoCollectExceptions(true)
+        .setAutoCollectDependencies(true)
+        .setAutoCollectConsole(true)
+        .setUseDiskRetryCaching(true)
+        .start();
+     
+    // register client in DI container
+    // so it could be used by services
+    Container.set(appInsights.TelemetryClient, appInsights.defaultClient);
 }

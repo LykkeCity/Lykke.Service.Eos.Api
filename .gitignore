@@ -61,7 +61,7 @@ jspm_packages/
 .vscode/*.json
 
 # App Settings
-appSettings.*.json
+appsettings*.json
 
 # Build artifacts
 build
