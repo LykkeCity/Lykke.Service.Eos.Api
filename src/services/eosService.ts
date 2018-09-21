@@ -14,6 +14,15 @@ export class EosService {
         this.eos = Eos({ httpEndpoint: settings.EosApi.Eos.HttpEndpoint });
     }
 
+    async accountExists(account: string): Promise<boolean> {
+        let acc: any;
+        try {
+            acc = await this.eos.getAccount(account);
+        } catch (e) {
+        }
+        return !!acc;
+    }
+
     async getChainId(): Promise<string> {
         return (await this.eos.getInfo({})).chain_id;
     }
