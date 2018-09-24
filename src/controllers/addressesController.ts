@@ -1,6 +1,6 @@
 import { JsonController, Get, Param } from "routing-controllers";
 import { NotImplementedError } from "../errors/notImplementedError";
-import { isEosAddress, ParamIsEosAddress } from "../common";
+import { isEosAddress, ParamIsEosAddress, ADDRESS_SEPARATOR } from "../common";
 import { EosService } from "../services/eosService";
 
 @JsonController("/addresses")
@@ -15,9 +15,10 @@ export class AddressesController {
     }
 
     @Get("/:address/validity")
-    isValid(@Param("address") address: string) {
+    async isValid(@Param("address") address: string) {
         return {
-            isValid: isEosAddress(address)
+            isValid: isEosAddress(address) &&
+                await this.eosService.accountExists(address.split(ADDRESS_SEPARATOR)[0])
         };
     }
 }
