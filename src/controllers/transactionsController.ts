@@ -215,7 +215,8 @@ export class TransactionsController {
             actions: txActions
         };
 
-        await this.operationRepository.upsert(operationId, type, assetId, opActions, isoUTC(context.headers.expiration));
+        await this.operationRepository.upsert(operationId, type, assetId, opActions,
+            !!txActions.length && isoUTC(context.headers.expiration));
 
         return {
             transactionContext: toBase64(context)
