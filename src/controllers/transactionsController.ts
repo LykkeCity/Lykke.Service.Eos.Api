@@ -329,7 +329,7 @@ export class TransactionsController {
             // included in block and when it becomes irreversible
 
             try {
-                await this.eosService.pushTransaction(tx);
+                await this.eosService.pushTransaction(tx.transaction);
             } catch (error) {
                 if (error.status >= 400) {
                     let data: any = error.message;
