@@ -124,7 +124,8 @@ enum State {
 }
 
 class SignedTransactionModel {
-    txId: string;
+    transaction_id: string;
+    transaction: any;
 }
 
 @JsonController("/transactions")
@@ -157,13 +158,13 @@ export class TransactionsController {
 
     private async build(type: OperationType, operationId: string, assetId: string, inOut: { fromAddress: string, toAddress: string, amount: string }[]) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isSent()) {
-            throw new BlockchainError({ status: 409, message: `Operation [${operationId}] already broadcasted` });
+        if (!!operation && operation.isRunning) {
+            throw new BlockchainError(409, `Operation [${operationId}] already ${this.getState(operation)}`);
         }
 
         const asset = await this.assetRepository.get(assetId);
         if (asset == null) {
-            throw new BlockchainError({ status: 400, message: `Unknown asset [${assetId}]` });
+            throw new BlockchainError(400, `Unknown asset [${assetId}]`);
         }
 
         const opActions = [];
@@ -173,7 +174,7 @@ export class TransactionsController {
             const amountInBaseUnit = parseInt(action.amount);
 
             if (Number.isNaN(amountInBaseUnit) || amountInBaseUnit <= 0) {
-                throw new BlockchainError({ status: 400, message: `Invalid amount [${action.amount}]` });
+                throw new BlockchainError(400, `Invalid amount [${action.amount}]`);
             }
 
             const amount = asset.fromBaseUnit(amountInBaseUnit);
@@ -205,7 +206,7 @@ export class TransactionsController {
             }
 
             if (balanceInBaseUnit < amountInBaseUnit) {
-                throw new BlockchainError({ status: 400, message: `Not enough balance on address [${action.fromAddress}]`, errorCode: ErrorCode.notEnoughBalance });
+                throw new BlockchainError(400, `Not enough balance on address [${action.fromAddress}]`, ErrorCode.notEnoughBalance);
             }
         }
 
@@ -215,7 +216,8 @@ export class TransactionsController {
             actions: txActions
         };
 
-        await this.operationRepository.upsert(operationId, type, assetId, opActions, isoUTC(context.headers.expiration));
+        await this.operationRepository.upsert(operationId, type, assetId, opActions,
+            !!txActions.length && isoUTC(context.headers.expiration));
 
         return {
             transactionContext: toBase64(context)
@@ -273,10 +275,13 @@ export class TransactionsController {
         const operation = await this.operationRepository.get(request.operationId);
         if (!operation) {
             // transaction must be built before
-            throw new BlockchainError({ status: 400, message: `Unknown operation [${request.operationId}]` });
-        } else if (!!operation.SendTime) {
-            // sendTime is not null only if all related data already successfully saved
-            throw new BlockchainError({ status: 409, message: `Operation [${request.operationId}] already broadcasted` });
+            throw new BlockchainError(400, `Unknown operation [${request.operationId}]`);
+        } else if (!!operation.FailTime) {
+            // in case of error between broadcasting transaction and saving operation state
+            // operation may be already processed by tracking job
+            throw new BlockchainError(400, operation.Error, operation.ErrorCode);
+        } else if (!!operation.SendTime || !!operation.CompletionTime) {
+            throw new BlockchainError(409, `Operation [${request.operationId}] already ${this.getState(operation)}`);
         }
 
         const sendTime = new Date();
@@ -284,9 +289,13 @@ export class TransactionsController {
         const blockTime = operation.BlockTime || sendTime;
         const completionTime = operation.CompletionTime || sendTime;
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
-        let txId = tx.txId;
+        const txId = tx.transaction_id;
 
-        if (!!txId) {
+        // connect operation to transaction before broadcasting to process transaction
+        // correctly in case of errors between broadcasting and saving operation state 
+        await this.operationRepository.update(operation.OperationId, { txId });
+
+        if (!tx.transaction) {
 
             // for fully simulated transaction we immediately update
             // balances and history, and mark operation as completed
@@ -311,7 +320,7 @@ export class TransactionsController {
             }
 
             // save send time and transaction id and mark operation as completed
-            await this.operationRepository.update(operation.OperationId, { sendTime, txId, completionTime, blockTime, block });
+            await this.operationRepository.update(operation.OperationId, { sendTime, completionTime, blockTime, block });
 
         } else {
 
@@ -320,7 +329,7 @@ export class TransactionsController {
             // included in block and when it becomes irreversible
 
             try {
-                txId = await this.eosService.pushTransaction(tx);
+                await this.eosService.pushTransaction(tx.transaction);
             } catch (error) {
                 if (error.status >= 400) {
                     let data: any = error.message;
@@ -335,14 +344,14 @@ export class TransactionsController {
                     const status = errorCode == ErrorCode.unknown
                         ? error.status
                         : 400;
-                    throw new BlockchainError({ status, message, errorCode, data });
+                    throw new BlockchainError(status, message, errorCode, data);
                 } else {
                     throw error;
                 }
             }
 
             // save send time and transaction id
-            await this.operationRepository.update(operation.OperationId, { sendTime, txId });
+            await this.operationRepository.update(operation.OperationId, { sendTime });
         }
 
         return { txId };
@@ -351,7 +360,7 @@ export class TransactionsController {
     @Get("/broadcast/single/:operationId")
     async getSingle(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isSent()) {
+        if (!!operation && operation.isRunning) {
             return {
                 operationId,
                 state: this.getState(operation),
@@ -371,7 +380,7 @@ export class TransactionsController {
     @Get("/broadcast/many-inputs/:operationId")
     async getManyInputs(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isSent()) {
+        if (!!operation && operation.isRunning) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,
@@ -395,7 +404,7 @@ export class TransactionsController {
     @Get("/broadcast/many-outputs/:operationId")
     async getManyOutputs(@ParamIsUuid("operationId") operationId: string) {
         const operation = await this.operationRepository.get(operationId);
-        if (!!operation && operation.isSent()) {
+        if (!!operation && operation.isRunning) {
             const actions = await this.operationRepository.getActions(operationId);
             return {
                 operationId,

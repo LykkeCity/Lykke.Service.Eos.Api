@@ -46,16 +46,13 @@ export class OperationEntity extends AzureEntity {
     ErrorCode: ErrorCode;
     DeleteTime: Date;
 
-    isCompleted(): boolean {
-        return !!this.CompletionTime;
-    }
-
-    isFailed(): boolean {
-        return !!this.FailTime;
-    }
-
-    isSent(): boolean {
-        return !!this.SendTime;
+    /**
+    * Returns true if operation is not fully processed by common services (i.e. is sent, completed or failed),
+    * otherwise false (ie. is just built or already deleted).
+    */
+    @Ignore()
+    get isRunning(): boolean {
+        return !!this.SendTime || !!this.CompletionTime || !!this.FailTime;
     }
 }
 
@@ -111,7 +108,7 @@ export class OperationRepository extends AzureRepository {
 
     async upsert(operationId: string, type: OperationType, assetId: string,
         actions: { fromAddress: string, toAddress: string, amount: number, amountInBaseUnit: number }[],
-        expiryTime: Date) {
+        expiryTime?: Date) {
 
         const operationEntity = new OperationEntity();
         operationEntity.PartitionKey = operationId;
@@ -134,13 +131,15 @@ export class OperationRepository extends AzureRepository {
             return entity;
         });
 
-        const operationByExpiryTimeEntity = new OperationByExpiryTimeEntity();
-        operationByExpiryTimeEntity.PartitionKey = expiryTime.toISOString();
-        operationByExpiryTimeEntity.RowKey = operationId;
-
         await this.insertOrMerge(this.operationTableName, operationEntity);
         await this.insertOrMerge(this.operationActionTableName, operationActionEntities);
-        await this.insertOrMerge(this.operationByExpiryTimeTableName, operationByExpiryTimeEntity);
+
+        if (!!expiryTime) {
+            const operationByExpiryTimeEntity = new OperationByExpiryTimeEntity();
+            operationByExpiryTimeEntity.PartitionKey = expiryTime.toISOString();
+            operationByExpiryTimeEntity.RowKey = operationId;
+            await this.insertOrMerge(this.operationByExpiryTimeTableName, operationByExpiryTimeEntity);
+        }
     }
 
     async update(
