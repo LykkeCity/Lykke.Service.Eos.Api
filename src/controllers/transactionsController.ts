@@ -1,4 +1,4 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete, OnUndefined, QueryParam } from "routing-controllers";
+import { JsonController, Body, Get, Post, Put, Delete, OnUndefined, QueryParam } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository } from "../domain/assets";
@@ -290,6 +290,16 @@ export class TransactionsController {
         const completionTime = operation.CompletionTime || sendTime;
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
         const txId = tx.transaction_id;
+
+        // if similar (same type and data) transactions are built too quickly,
+        // then transaction_id duplication is possible
+        const operationIdByTxId = await this.operationRepository.getOperationIdByTxId(txId);
+        if (!!operationIdByTxId && operationIdByTxId != operation.OperationId) {
+            throw new BlockchainError(400, "Duplicated transaction_id", ErrorCode.buildingShouldBeRepeated, {
+                operationIdByTxId,
+                operation
+            });
+        }
 
         // connect operation to transaction before broadcasting to process transaction
         // correctly in case of errors between broadcasting and saving operation state 
