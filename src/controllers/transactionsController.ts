@@ -348,8 +348,8 @@ export class TransactionsController {
                     } catch {
                     }
                     const message = "Transaction rejected";
-                    const errorCode = !!data && !!data.error && (data.error.code == 3040005 || data.error.code == 3040008)
-                        ? ErrorCode.buildingShouldBeRepeated // tx expired or duplicated
+                    const errorCode = !!data && !!data.error && data.error.code == 3040005
+                        ? ErrorCode.buildingShouldBeRepeated // tx expired
                         : ErrorCode.unknown;
                     const status = errorCode == ErrorCode.unknown
                         ? error.status
