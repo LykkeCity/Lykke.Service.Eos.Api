@@ -341,6 +341,14 @@ export class TransactionsController {
             try {
                 await this.eosService.pushTransaction(tx.transaction);
             } catch (error) {
+                await this.logService.write(LogLevel.warning, TransactionsController.name, this.broadcast.name, "BlockchainError", error.message);
+                await this.operationRepository.update(operation.OperationId, { blockchainError: error.message });
+
+                // some errors are not final, transaction may be applied later, while not expired, so:
+                // - for known final error - return result immediately,
+                // - for unknown and possibly not final error - return OK at the moment,
+                //   transaction state will be recognized by tracking job
+
                 let data: any;
                 try {
                     data = JSON.parse(error.message);
@@ -348,8 +356,6 @@ export class TransactionsController {
                 }
                 if (!!data && !!data.error && data.error.code == 3040005) {
                     throw new BlockchainError(400, "Transaction rejected", ErrorCode.buildingShouldBeRepeated, data);
-                } else {
-                    throw error;
                 }
             }
 
@@ -373,7 +379,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
@@ -397,7 +404,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
@@ -421,7 +429,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
