@@ -1,4 +1,4 @@
-import { JsonController, Param, Body, Get, Post, Put, Delete, OnUndefined, QueryParam } from "routing-controllers";
+import { JsonController, Body, Get, Post, Put, Delete, OnUndefined, QueryParam } from "routing-controllers";
 import { IsArray, IsString, IsNotEmpty, IsBase64, IsUUID } from "class-validator";
 import { EosService } from "../services/eosService";
 import { AssetRepository } from "../domain/assets";
@@ -291,6 +291,16 @@ export class TransactionsController {
         const tx = fromBase64<SignedTransactionModel>(request.signedTransaction);
         const txId = tx.transaction_id;
 
+        // if similar (same type and data) transactions are built too quickly,
+        // then transaction_id duplication is possible
+        const operationIdByTxId = await this.operationRepository.getOperationIdByTxId(txId);
+        if (!!operationIdByTxId && operationIdByTxId != operation.OperationId) {
+            throw new BlockchainError(400, "Duplicated transaction_id", ErrorCode.buildingShouldBeRepeated, {
+                operationIdByTxId,
+                operation
+            });
+        }
+
         // connect operation to transaction before broadcasting to process transaction
         // correctly in case of errors between broadcasting and saving operation state 
         await this.operationRepository.update(operation.OperationId, { txId });
@@ -331,22 +341,21 @@ export class TransactionsController {
             try {
                 await this.eosService.pushTransaction(tx.transaction);
             } catch (error) {
-                if (error.status >= 400) {
-                    let data: any = error.message;
-                    try {
-                        data = JSON.parse(error.message);
-                    } catch {
-                    }
-                    const message = "Transaction rejected";
-                    const errorCode = !!data && !!data.error && (data.error.code == 3040005 || data.error.code == 3040008)
-                        ? ErrorCode.buildingShouldBeRepeated // tx expired or duplicated
-                        : ErrorCode.unknown;
-                    const status = errorCode == ErrorCode.unknown
-                        ? error.status
-                        : 400;
-                    throw new BlockchainError(status, message, errorCode, data);
-                } else {
-                    throw error;
+                await this.logService.write(LogLevel.warning, TransactionsController.name, this.broadcast.name, "BlockchainError", error.message);
+                await this.operationRepository.update(operation.OperationId, { blockchainError: error.message });
+
+                // some errors are not final, transaction may be applied later, while not expired, so:
+                // - for known final error - return result immediately,
+                // - for unknown and possibly not final error - return OK at the moment,
+                //   transaction state will be recognized by tracking job
+
+                let data: any;
+                try {
+                    data = JSON.parse(error.message);
+                } catch {
+                }
+                if (!!data && !!data.error && data.error.code == 3040005) {
+                    throw new BlockchainError(400, "Transaction rejected", ErrorCode.buildingShouldBeRepeated, data);
                 }
             }
 
@@ -370,7 +379,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
@@ -394,7 +404,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
@@ -418,7 +429,8 @@ export class TransactionsController {
                 hash: operation.TxId,
                 block: operation.Block,
                 error: operation.Error,
-                errorCode: operation.ErrorCode
+                errorCode: operation.ErrorCode,
+                blockchainError: operation.BlockchainError
             };
         } else {
             return null;
