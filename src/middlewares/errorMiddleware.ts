@@ -11,26 +11,30 @@ export class ErrorMiddleware implements KoaMiddlewareInterface {
         // routing-controllers lib has built-in error handler.
         // See https://github.com/typestack/routing-controllers#error-handlers for details
         await next();
+        
+        const body = ctx.body || {};
 
-        // To implement blockchain integration contract:
-        // 1. Replace 'message' with 'errorMessage' and add 'errorCode' if necessary
-        if (ctx.status >= 400 && !!ctx.body) {
-            ctx.body.errorMessage = ctx.body.errorMessage || ctx.body.message || ctx.message;
-            ctx.body.errorCode = ctx.body.errorCode || ErrorCode.unknown;
-            delete ctx.body.message;
+        // format error data according to BIL contract,
+        // and preserve original error
+        if (ctx.status >= 400) {
+            ctx.body = {
+                errorMessage: typeof body == "object" ? (body.errorMessage || body.message || ctx.message) : "Unknown error",
+                errorCode: body.errorCode || ErrorCode.unknown,
+                errorData: body
+            };
         }
 
-        // 2. Map 'errors' to 'modelErrors'
-        if (ctx.status == 400 && !!ctx.body && !!ctx.body.errors) {
+        // map routing-controllers "errors" property to
+        // BIL contract "modelErrors" property
+        if (ctx.status == 400 && !!body.errors) {
             ctx.body.modelErrors = {};
-            ctx.body.errors.filter((e: any) => !!e.property && !!e.constraints)
+            body.errors.filter((e: any) => !!e.property && !!e.constraints)
                 .forEach((e: any) => {
                     ctx.body.modelErrors[e.property] = [];
                     for (const k in e.constraints) {
                         ctx.body.modelErrors[e.property].push(e.constraints[k]);
                     }
                 });
-            delete ctx.body.errors;
         }
     }
 }
