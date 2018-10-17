@@ -1,8 +1,7 @@
-import { JsonController, Post, Body } from "routing-controllers";
+import { JsonController, Post, Body, HttpError } from "routing-controllers";
 import { IsEosAddress } from "../common";
 import { EosService } from "../services/eosService";
 import { IsString, IsOptional, IsNotEmpty, IsNumber, IsIn, IsBoolean } from "class-validator";
-import { BlockchainError } from "../errors/blockchainError";
 
 class CreateRequest {
     @IsNotEmpty()
@@ -78,7 +77,7 @@ export class AddressesController {
     @Post("/create")
     async create(@Body() request: CreateRequest) {
         if (await this.eosService.accountExists(request.account)) {
-            throw new BlockchainError({ status: 409, message: `Account [${request.account}] already exists` });
+            throw new HttpError(409, `Account ${request.account} already exists`);
         }
 
         return await this.eosService.accountCreate(
