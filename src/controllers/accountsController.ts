@@ -40,7 +40,7 @@ class CreateRequest {
 
     @IsOptional()
     @IsBoolean()
-    transafer: boolean;
+    transfer: boolean;
 }
 
 class BandwidthRequest {
@@ -66,6 +66,15 @@ class BandwidthRequest {
     @IsNotEmpty()
     @IsNumber()
     cpu: number;
+
+    @IsOptional()
+    @IsString()
+    @IsEosAddress()
+    receiver: string;
+
+    @IsOptional()
+    @IsBoolean()
+    transfer: boolean;
 }
 
 @JsonController("/accounts")
@@ -89,11 +98,18 @@ export class AddressesController {
             request.ram,
             request.net,
             request.cpu,
-            request.transafer);
+            request.transfer);
     }
 
     @Post("/bandwidth")
     async bandwidth(@Body() request: BandwidthRequest) {
-        return await this.eosService.bandwidth(request.action, request.account, request.wif, request.net, request.cpu);
+        return await this.eosService.bandwidth(
+            request.action,
+            request.account,
+            request.wif,
+            request.net,
+            request.cpu,
+            request.receiver,
+            request.transfer);
     }
 }
