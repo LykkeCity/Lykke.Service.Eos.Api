@@ -107,7 +107,7 @@ export class EosService {
         };
     }
 
-    async bandwidth(action: string, account: string, wif: string, net: number, cpu: number) {
+    async bandwidth(action: string, account: string, wif: string, net: number, cpu: number, receiver?: string, transfer = false) {
         const isDelegate = action == "delegate";
         const netAssetAmount = `${net.toFixed(4)} EOS`;
         const cpuAssetAmount = `${cpu.toFixed(4)} EOS`;
@@ -119,12 +119,12 @@ export class EosService {
         });
         return await eos[`${action}bw`]({
             from: account,
-            receiver: account,
+            receiver: receiver || account,
             stake_net_quantity: isDelegate ? netAssetAmount : undefined,
             stake_cpu_quantity: isDelegate ? cpuAssetAmount : undefined,
             unstake_net_quantity: !isDelegate ? netAssetAmount : undefined,
             unstake_cpu_quantity: !isDelegate ? cpuAssetAmount : undefined,
-            transfer: isDelegate ? 0 : undefined
+            transfer: isDelegate ? (transfer ? 1 : 0) : undefined
         }, {
             expireInSeconds: this.settings.EosApi.Eos.ExpireInSeconds
         });
