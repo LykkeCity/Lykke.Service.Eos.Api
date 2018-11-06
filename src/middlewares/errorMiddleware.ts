@@ -13,6 +13,7 @@ export class ErrorMiddleware implements KoaMiddlewareInterface {
         await next();
         
         const body = ctx.body || {};
+        const status = ctx.status || 200;
 
         // format error data according to BIL contract,
         // and preserve original error
@@ -22,6 +23,7 @@ export class ErrorMiddleware implements KoaMiddlewareInterface {
                 errorCode: body.errorCode || ErrorCode.unknown,
                 errorData: body
             };
+            ctx.status = status;
         }
 
         // map routing-controllers "errors" property to
