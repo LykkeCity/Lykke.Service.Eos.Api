@@ -319,7 +319,7 @@ export class TransactionsController {
                     { address: action.ToAddress, affix: action.Amount, affixInBaseUnit: action.AmountInBaseUnit }
                 ];
                 for (const bc of balanceChanges) {
-                    await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, bc.affix, bc.affixInBaseUnit, block);
+                    await this.balanceRepository.upsert(bc.address, operation.AssetId, operation.OperationId, action.RowKey, bc.affix, bc.affixInBaseUnit, block);
                     await this.logService.write(LogLevel.info, TransactionsController.name, this.broadcast.name,
                         "Balance change recorded", JSON.stringify({ ...bc, assetId: operation.AssetId, txId }));
                 }
